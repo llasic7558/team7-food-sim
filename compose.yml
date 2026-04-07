@@ -13,7 +13,7 @@ volumes:
 
 services:
 
-  # ── Holmes — System Investigation Container ────────────────────────────────
+  # ── Holmes — System Investigation Container
   holmes:
     build:
       context: ./holmes
