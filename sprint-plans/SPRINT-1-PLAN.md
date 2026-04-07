@@ -8,7 +8,7 @@
 
 ## Goal
 
-[One or two sentences on what your team will have working by end of sprint. Be specific. "Order service, restaurant service, and synchronous call between them running in Docker Compose with health endpoints" is good. "Get stuff working" is not.]
+By the end of the spring, we will get our core services running in Docker Compose and talking to each other. The core services we will build are the restaurant service which will manage the restaurant profiles, menus, and availability windows, and the order service which will allow the system to accept and manage the orders that comes in from users (must also be protected against duplicates). We must also simulate and track driver availability and location.
 
 ---
 
@@ -16,7 +16,7 @@
 
 | Team Member | Files / Directories Owned This Sprint           |
 | ----------- | ----------------------------------------------- |
-| [Name]      | `[service-dir]/`, `[service-dir]/db/schema.sql` |
+| [Dev, Emily and Kanika]      | `[service-dir]/`, `[service-dir]/db/schema.sql` |
 | [Name]      | `[service-dir]/`, `compose.yml` additions       |
 | [Name]      | `k6/sprint-1.js`, `[worker-dir]/`               |
 
@@ -30,7 +30,7 @@ git log --author="Name" --oneline -- path/to/directory/
 
 ## Tasks
 
-### [Name]
+### [Dev, Emily and Kanika]
 
 - [ ] Set up `[service]/` with Express + Postgres connection
 - [ ] Implement `GET /health` with DB check
