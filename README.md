@@ -1,9 +1,9 @@
-# [Team Name] — [System Name]
+# Team 7 — Food Processing Sim
 
 **Course:** COMPSCI 426  
-**Team:** [Name], [Name], [Name], ...  
-**System:** [e.g. Event Ticketing / Food Delivery / Video Platform / ...]  
-**Repository:** [GitHub URL — public fork of https://github.com/umass-cs-426/starter-project]
+**Team:** Beatrice, Dev, Emily, Kanika, Ray, Shaoqin, Luka
+**System:** Food Delivery 
+**Repository:** [\[GitHub URL — public fork of https://github.com/umass-cs-426/starter-project\]](https://github.com/llasic7558/team7-food-sim)
 
 ---
 
@@ -11,9 +11,13 @@
 
 | Team Member | Services / Components Owned                            |
 | ----------- | ------------------------------------------------------ |
-| [Name]      | [e.g. `order-service/`, `order-service/db/schema.sql`] |
-| [Name]      | [e.g. `restaurant-service/`, `redis/menu-cache`]       |
-| [Name]      | [e.g. `dispatch-worker/`, `k6/`]                       |
+| Beatrice   |  |
+| Dev    |        |
+| Emily    |                       |
+| Kanika      |                    |
+| Ray      |                     |
+| Shaoqin      |                     |
+| Luka     |                    |
 
 > Ownership is verified by `git log --author`. Each person must have meaningful commits in the directories they claim.
 
