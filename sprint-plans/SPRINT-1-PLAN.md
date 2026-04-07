@@ -17,8 +17,8 @@ By the end of the spring, we will get our core services running in Docker Compos
 | Team Member | Files / Directories Owned This Sprint           |
 | ----------- | ----------------------------------------------- |
 | [Dev, Emily and Kanika]      | `[service-dir]/`, `[service-dir]/db/schema.sql` |
-| [Name]      | `[service-dir]/`, `compose.yml` additions       |
-| [Name]      | `k6/sprint-1.js`, `[worker-dir]/`               |
+| [Beatrice and Raymond]      | `[service-dir]/`, `compose.yml` additions       |
+| [Shao and Luka]      | `k6/sprint-1.js`, `[worker-dir]/`               |
 
 Each person must have meaningful commits in the paths they claim. Ownership is verified by:
 
@@ -37,14 +37,14 @@ git log --author="Name" --oneline -- path/to/directory/
 - [ ] Write `db/schema.sql` and seed script
 - [ ] Add `healthcheck` directive to `compose.yml`
 
-### [Name]
+### [Beatrice and Raymond]
 
 - [ ] Set up `[service]/` with Express + Redis connection
 - [ ] Implement `GET /health` with Redis check
 - [ ] Implement `GET /[resource]` — stub returning placeholder data
 - [ ] Test synchronous call to [other service]
 
-### [Name]
+### [Shao and Luka]
 
 - [ ] Wire `depends_on: condition: service_healthy` in `compose.yml`
 - [ ] Write `k6/sprint-1.js` baseline load test
