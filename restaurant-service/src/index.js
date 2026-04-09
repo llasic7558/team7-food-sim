@@ -42,6 +42,10 @@ app.get('/health', async (_req, res) => {
 
 });
 
+app.get('/menu', (_req, res) => {
+  console.log('menu');
+});
+
 app.listen(PORT, () => {
   console.log(`restaurant-service listening on port ${PORT}`);
 });
