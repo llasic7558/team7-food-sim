@@ -40,6 +40,7 @@ git log --author="Name" --oneline -- path/to/directory/
 ### [Beatrice and Raymond]
 
 I Raymond Huang am super exited to begin working on this part
+I am also excited to work on this part! - Beatrice Calvelo
 
 - [ ] Set up `[service]/` with Express + Redis connection
 - [ ] Implement `GET /health` with Redis check
