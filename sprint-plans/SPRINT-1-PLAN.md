@@ -39,6 +39,8 @@ git log --author="Name" --oneline -- path/to/directory/
 
 ### [Beatrice and Raymond]
 
+I Raymond Huang am super exited to begin working on this part
+
 - [ ] Set up `[service]/` with Express + Redis connection
 - [ ] Implement `GET /health` with Redis check
 - [ ] Implement `GET /[resource]` — stub returning placeholder data
