@@ -56,7 +56,7 @@ I Raymond Huang am super exited to begin working on this part
 
 ## Risks
 
-[What could go wrong? What are you uncertain about? What will you do if a task takes longer than expected?]
+We need to ensure that duplicate orders with the same idempotency key return the original order. Since different people are working on different things, we run the risk of people working on the same task and overwriting someone else's work- so we must collaborate well and communicate with each other so we are supporting each other well.
 
 ---
 

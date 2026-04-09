@@ -1,41 +1,19 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# COMPSCI 426 — Team Project compose.yml
-#
-# This file defines the Holmes investigation container and a shared network.
-# Add your own services below the "Add your services here" section.
-#
-# Every service you add must be attached to `team-net` so it is reachable
-# from holmes by service name.
-#
-# Quick reference:
-#   Start everything:          docker compose up --build
-#   Open a shell in holmes:    docker compose exec holmes bash
-#   View logs:                 docker compose logs -f
-#   Check health:              docker compose ps
+# COMPSCI 426 — Team 7 Food Delivery compose.yml
 # ─────────────────────────────────────────────────────────────────────────────
 
 networks:
   team-net:
     driver: bridge
 
+volumes:
+  restaurant-db-data:
+  order-db-data:
+  driver-db-data:
+
 services:
 
-  # ── Holmes — System Investigation Container ────────────────────────────────
-  # A persistent container with curl, wget, jq, k6, psql, redis-cli, Node,
-  # Python, bat, lsd, fd, ripgrep, Neovim + LazyVim, and more.
-  #
-  # Use it to inspect and test your services from inside the Docker network:
-  #
-  #   docker compose exec holmes bash
-  #   curl http://order-service:3000/health | jq .
-  #   psql postgres://user:pass@postgres:5432/mydb
-  #   redis-cli -h redis ping
-  #   k6 run /workspace/k6/sprint-1.js
-  #
-  # Your repo root is mounted at /workspace, so all k6 scripts and files
-  # are accessible without copying them into the container.
-  #
-  # See holmes/README.md for a full tool reference.
+  # ── Holmes — System Investigation Container
   holmes:
     build:
       context: ./holmes
@@ -48,71 +26,151 @@ services:
       - team-net
     environment:
       - TERM=xterm-256color
-    # Holmes has no ports — access it via: docker compose exec holmes bash
 
-  # ── Add your services here ─────────────────────────────────────────────────
-  #
-  # Pattern for each service:
-  #
-  # your-service:
-  #   build: ./your-service
-  #   container_name: your-service
-  #   restart: unless-stopped
-  #   ports:
-  #     - "3001:3001"          # expose on host for local testing
-  #   networks:
-  #     - team-net             # REQUIRED — makes it reachable from holmes
-  #   environment:
-  #     - DATABASE_URL=postgres://user:pass@postgres:5432/yourdb
-  #     - REDIS_URL=redis://redis:6379
-  #   depends_on:
-  #     postgres:
-  #       condition: service_healthy
-  #     redis:
-  #       condition: service_healthy
-  #   healthcheck:
-  #     test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
-  #     interval: 10s
-  #     timeout: 5s
-  #     retries: 3
-  #     start_period: 15s
-  #
-  # ── Postgres template ──────────────────────────────────────────────────────
-  #
-  # postgres:
-  #   image: postgres:16
-  #   container_name: postgres
-  #   restart: unless-stopped
-  #   environment:
-  #     POSTGRES_USER: user
-  #     POSTGRES_PASSWORD: pass
-  #     POSTGRES_DB: mydb
-  #   volumes:
-  #     - postgres-data:/var/lib/postgresql/data
-  #   networks:
-  #     - team-net
-  #   healthcheck:
-  #     test: ["CMD-SHELL", "pg_isready -U user -d mydb"]
-  #     interval: 5s
-  #     timeout: 3s
-  #     retries: 5
-  #
-  # ── Redis template ─────────────────────────────────────────────────────────
-  #
-  # redis:
-  #   image: redis:7
-  #   container_name: redis
-  #   restart: unless-stopped
-  #   networks:
-  #     - team-net
-  #   healthcheck:
-  #     test: ["CMD", "redis-cli", "ping"]
-  #     interval: 5s
-  #     timeout: 3s
-  #     retries: 5
+  # ── Infrastructure ─────────────────────────────────────────────────────────
 
-# ── Named volumes ──────────────────────────────────────────────────────────────
-# Declare a volume for each database here, e.g.:
-#
-# volumes:
-#   postgres-data:
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    restart: unless-stopped
+    networks:
+      - team-net
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  restaurant-db:
+    image: postgres:16
+    container_name: restaurant-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: secret
+      POSTGRES_DB: restaurants
+    volumes:
+      - restaurant-db-data:/var/lib/postgresql/data
+      - ./restaurant-service/db:/docker-entrypoint-initdb.d
+    networks:
+      - team-net
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U app -d restaurants']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  order-db:
+    image: postgres:16
+    container_name: order-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: secret
+      POSTGRES_DB: orders
+    volumes:
+      - order-db-data:/var/lib/postgresql/data
+      - ./order-service/db:/docker-entrypoint-initdb.d
+    networks:
+      - team-net
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U app -d orders']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  driver-db:
+    image: postgres:16
+    container_name: driver-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: secret
+      POSTGRES_DB: drivers
+    volumes:
+      - driver-db-data:/var/lib/postgresql/data
+      - ./driver-service/db:/docker-entrypoint-initdb.d
+    networks:
+      - team-net
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U app -d drivers']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ── Core Services ──────────────────────────────────────────────────────────
+
+  restaurant-service:
+    build: ./restaurant-service
+    container_name: restaurant-service
+    restart: unless-stopped
+    networks:
+      - team-net
+    environment:
+      DATABASE_URL: postgres://app:secret@restaurant-db:5432/restaurants
+      REDIS_URL: redis://redis:6379
+      SERVICE_NAME: restaurant-service
+      PORT: 8000
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:8000/health']
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    depends_on:
+      restaurant-db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  order-service:
+    build: ./order-service
+    container_name: order-service
+    restart: unless-stopped
+    networks:
+      - team-net
+    environment:
+      DATABASE_URL: postgres://app:secret@order-db:5432/orders
+      REDIS_URL: redis://redis:6379
+      RESTAURANT_SERVICE_URL: http://restaurant-service:8000
+      SERVICE_NAME: order-service
+      PORT: 8000
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:8000/health']
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    depends_on:
+      order-db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      restaurant-service:
+        condition: service_healthy
+
+  driver-service:
+    build: ./driver-service
+    container_name: driver-service
+    restart: unless-stopped
+    networks:
+      - team-net
+    environment:
+      DATABASE_URL: postgres://app:secret@driver-db:5432/drivers
+      REDIS_URL: redis://redis:6379
+      SERVICE_NAME: driver-service
+      PORT: 8000
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:8000/health']
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    depends_on:
+      driver-db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy

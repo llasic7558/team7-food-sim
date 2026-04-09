@@ -1,23 +1,19 @@
-# Team 7 — Food Processing Sim
+# Team 7 — Food Delivery Coordination
 
 **Course:** COMPSCI 426  
-**Team:** Beatrice, Dev, Emily, Kanika, Ray, Shaoqin, Luka
-**System:** Food Delivery 
-**Repository:** [\[GitHub URL — public fork of https://github.com/umass-cs-426/starter-project\]](https://github.com/llasic7558/team7-food-sim)
+**Team:** [Name], [Name], [Name]  
+**System:** Food Delivery Coordination  
+**Repository:** [GitHub URL]
 
 ---
 
 ## Team and Service Ownership
 
-| Team Member | Services / Components Owned                            |
-| ----------- | ------------------------------------------------------ |
-| Beatrice   |  |
-| Dev    |        |
-| Emily    |                       |
-| Kanika      |                    |
-| Ray      |                     |
-| Shaoqin      |                     |
-| Luka     |                    |
+| Team Member | Services / Components Owned                          |
+| ----------- | ---------------------------------------------------- |
+| [Name]      | `restaurant-service/`, `restaurant-service/db/`      |
+| [Name]      | `order-service/`, `order-service/db/`                |
+| [Name]      | `driver-service/`, `compose.yml`, `k6/`, `README.md` |
 
 > Ownership is verified by `git log --author`. Each person must have meaningful commits in the directories they claim.
 
@@ -29,9 +25,6 @@
 # Start everything (builds images on first run)
 docker compose up --build
 
-# Start with service replicas (Sprint 4)
-docker compose up --scale your-service=3
-
 # Verify all services are healthy
 docker compose ps
 
@@ -42,17 +35,16 @@ docker compose logs -f
 docker compose exec holmes bash
 ```
 
-### Base URLs (development)
+### Base URLs (from Holmes)
 
 ```
-[your-service-name]    http://localhost:[port]
-[your-service-name]    http://localhost:[port]
-[worker-name]          http://localhost:[port]   (health endpoint only)
-holmes                 (no port — access via exec)
+restaurant-service    http://restaurant-service:8000
+order-service         http://order-service:8000
+driver-service        http://driver-service:8000
 ```
 
-> From inside holmes, services are reachable by name:
-> `curl http://your-service:3000/health`
+> From inside Holmes, services are reachable by name:
+> `curl http://restaurant-service:8000/health | jq .`
 >
 > See [holmes/README.md](holmes/README.md) for a full tool reference.
 
@@ -60,28 +52,23 @@ holmes                 (no port — access via exec)
 
 ## System Overview
 
-[One paragraph describing what your system does and how the services interact.
-Include which service calls which, what queues exist, and how data flows.]
+Users place food delivery orders from local restaurants. The **Order Service** accepts incoming orders and validates each order's restaurant and menu items by making a synchronous HTTP call to the **Restaurant Service**. The **Restaurant Service** manages restaurant profiles, menus, and availability, backed by its own PostgreSQL database. The **Driver Service** tracks driver availability and location in a separate PostgreSQL database. A shared Redis instance is connected to all services for future caching and queue support. Each service exposes a `/health` endpoint that checks its database and Redis connections.
 
 ---
 
 ## API Reference
 
-<!--
-  Document every endpoint for every service.
-  Follow the format described in the project documentation: compact code block notation, then an example curl and an example response. Add a level-2 heading per service, level-3 per endpoint.
--->
-
 ---
 
-### [Service Name]
+## Restaurant Service
 
 ### GET /health
 
 ```
 GET /health
 
-  Returns the health status of this service and its dependencies.
+  Returns the health status of the restaurant service and its dependencies
+  (PostgreSQL and Redis).
 
   Responses:
     200  Service and all dependencies healthy
@@ -91,7 +78,7 @@ GET /health
 **Example request:**
 
 ```bash
-curl http://localhost:[port]/health
+curl http://restaurant-service:8000/health
 ```
 
 **Example response (200):**
@@ -99,24 +86,354 @@ curl http://localhost:[port]/health
 ```json
 {
   "status": "healthy",
-  "db": "ok",
-  "redis": "ok"
-}
-```
-
-**Example response (503):**
-
-```json
-{
-  "status": "unhealthy",
-  "db": "ok",
-  "redis": "error: connection refused"
+  "service": "restaurant-service",
+  "timestamp": "2026-04-07T10:23:01Z",
+  "uptime_seconds": 3612,
+  "checks": {
+    "database": { "status": "healthy", "latency_ms": 2 },
+    "redis": { "status": "healthy", "latency_ms": 1 }
+  }
 }
 ```
 
 ---
 
-<!-- Add the rest of your endpoints below. One ### section per endpoint. -->
+### GET /restaurants
+
+```
+GET /restaurants
+
+  Returns a list of all restaurants, ordered by name. Every request hits
+  the database (no caching in Sprint 1).
+
+  Responses:
+    200  Success — returns list of restaurants
+    500  Internal server error
+```
+
+**Example request:**
+
+```bash
+curl http://restaurant-service:8000/restaurants
+```
+
+**Example response (200):**
+
+```json
+{
+  "restaurants": [
+    {
+      "id": "a0a0a0a0-0001-4000-8000-000000000001",
+      "name": "Bella Italia",
+      "cuisine": "Italian",
+      "address": "123 Main St",
+      "rating": "4.5",
+      "created_at": "2026-04-07T10:00:00.000Z"
+    }
+  ]
+}
+```
+
+---
+
+### GET /restaurants/:id
+
+```
+GET /restaurants/:id
+
+  Returns full detail for a single restaurant.
+
+  Path:
+    id  string (UUID)  The restaurant's ID
+
+  Responses:
+    200  Success — returns restaurant detail
+    404  No restaurant found with that ID
+    500  Internal server error
+```
+
+**Example request:**
+
+```bash
+curl http://restaurant-service:8000/restaurants/a0a0a0a0-0001-4000-8000-000000000001
+```
+
+**Example response (200):**
+
+```json
+{
+  "id": "a0a0a0a0-0001-4000-8000-000000000001",
+  "name": "Bella Italia",
+  "cuisine": "Italian",
+  "address": "123 Main St",
+  "rating": "4.5",
+  "created_at": "2026-04-07T10:00:00.000Z"
+}
+```
+
+**Example response (404):**
+
+```json
+{
+  "error": "restaurant not found",
+  "id": "00000000-0000-0000-0000-000000000000"
+}
+```
+
+---
+
+### GET /restaurants/:id/menu
+
+```
+GET /restaurants/:id/menu
+
+  Returns all menu items for a restaurant.
+
+  Path:
+    id  string (UUID)  The restaurant's ID
+
+  Responses:
+    200  Success — returns list of menu items
+    404  Restaurant not found
+    500  Internal server error
+```
+
+**Example request:**
+
+```bash
+curl http://restaurant-service:8000/restaurants/a0a0a0a0-0001-4000-8000-000000000001/menu
+```
+
+**Example response (200):**
+
+```json
+{
+  "restaurant_id": "a0a0a0a0-0001-4000-8000-000000000001",
+  "items": [
+    {
+      "id": "b0b0b0b0-0001-4000-8000-000000000001",
+      "restaurant_id": "a0a0a0a0-0001-4000-8000-000000000001",
+      "name": "Margherita Pizza",
+      "description": "Classic tomato and mozzarella",
+      "price": "12.99",
+      "available": true,
+      "created_at": "2026-04-07T10:00:00.000Z"
+    }
+  ]
+}
+```
+
+---
+
+## Order Service
+
+### GET /health
+
+```
+GET /health
+
+  Returns the health status of the order service and its dependencies.
+
+  Responses:
+    200  Service and all dependencies healthy
+    503  One or more dependencies unreachable
+```
+
+**Example request:**
+
+```bash
+curl http://order-service:8000/health
+```
+
+---
+
+### POST /orders
+
+```
+POST /orders
+
+  Creates a new order. Validates the restaurant and menu items by making a
+  synchronous HTTP call to the Restaurant Service before creating the order.
+
+  Body:
+    restaurant_id  string (UUID)  required  UUID of the restaurant
+    customer_name  string         required  Name of the customer
+    items          array          required  List of order items
+    items[].menu_item_id  string (UUID)  required  UUID of the menu item
+    items[].quantity      integer        optional  default=1  Number to order
+
+  Responses:
+    201  Order created successfully
+    400  Missing or invalid fields, or invalid menu item
+    404  Restaurant not found
+    503  Restaurant service unavailable
+    500  Internal server error
+```
+
+**Example request:**
+
+```bash
+curl -X POST http://order-service:8000/orders \
+  -H "Content-Type: application/json" \
+  -d '{
+    "restaurant_id": "a0a0a0a0-0001-4000-8000-000000000001",
+    "customer_name": "Alice",
+    "items": [
+      { "menu_item_id": "b0b0b0b0-0001-4000-8000-000000000001", "quantity": 2 },
+      { "menu_item_id": "b0b0b0b0-0001-4000-8000-000000000003", "quantity": 1 }
+    ]
+  }'
+```
+
+**Example response (201):**
+
+```json
+{
+  "id": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d",
+  "restaurant_id": "a0a0a0a0-0001-4000-8000-000000000001",
+  "customer_name": "Alice",
+  "status": "pending",
+  "total": "34.97",
+  "created_at": "2026-04-07T10:23:01.000Z",
+  "items": [
+    { "menu_item_id": "b0b0b0b0-0001-4000-8000-000000000001", "name": "Margherita Pizza", "price": "12.99", "quantity": 2 },
+    { "menu_item_id": "b0b0b0b0-0001-4000-8000-000000000003", "name": "Tiramisu", "price": "8.99", "quantity": 1 }
+  ]
+}
+```
+
+---
+
+### GET /orders
+
+```
+GET /orders
+
+  Returns all orders, most recent first.
+
+  Responses:
+    200  Success — returns list of orders
+    500  Internal server error
+```
+
+**Example request:**
+
+```bash
+curl http://order-service:8000/orders
+```
+
+---
+
+### GET /orders/:id
+
+```
+GET /orders/:id
+
+  Returns a single order with its line items.
+
+  Path:
+    id  string (UUID)  The order's ID
+
+  Responses:
+    200  Success — returns order with items
+    404  Order not found
+    500  Internal server error
+```
+
+**Example request:**
+
+```bash
+curl http://order-service:8000/orders/<order-id>
+```
+
+---
+
+## Driver Service
+
+### GET /health
+
+```
+GET /health
+
+  Returns the health status of the driver service and its dependencies.
+
+  Responses:
+    200  Service and all dependencies healthy
+    503  One or more dependencies unreachable
+```
+
+**Example request:**
+
+```bash
+curl http://driver-service:8000/health
+```
+
+---
+
+### GET /drivers
+
+```
+GET /drivers
+
+  Returns all drivers. Optionally filter by status.
+
+  Query:
+    status  string  optional  Filter by driver status (available, busy, offline)
+
+  Responses:
+    200  Success — returns list of drivers
+    500  Internal server error
+```
+
+**Example request:**
+
+```bash
+curl http://driver-service:8000/drivers
+curl "http://driver-service:8000/drivers?status=available"
+```
+
+**Example response (200):**
+
+```json
+{
+  "drivers": [
+    {
+      "id": "d0d0d0d0-0001-4000-8000-000000000001",
+      "name": "Marcus Webb",
+      "phone": "555-0101",
+      "vehicle": "Toyota Camry",
+      "status": "available",
+      "latitude": "42.375100",
+      "longitude": "-72.519400",
+      "created_at": "2026-04-07T10:00:00.000Z"
+    }
+  ]
+}
+```
+
+---
+
+### GET /drivers/:id
+
+```
+GET /drivers/:id
+
+  Returns a single driver by ID.
+
+  Path:
+    id  string (UUID)  The driver's ID
+
+  Responses:
+    200  Success — returns driver detail
+    404  Driver not found
+    500  Internal server error
+```
+
+**Example request:**
+
+```bash
+curl http://driver-service:8000/drivers/d0d0d0d0-0001-4000-8000-000000000001
+```
 
 ---
 
