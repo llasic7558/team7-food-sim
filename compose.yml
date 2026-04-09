@@ -10,6 +10,8 @@ volumes:
   restaurant-db-data:
   order-db-data:
   driver-db-data:
+  ratings-db-data:
+  pricing-db-data:
 
 services:
 
@@ -100,45 +102,45 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
-    
-    rating-db:
-      image: postgres:16
-      container_name: rating
-      restart: unless-stopped
-      environment:
-        POSTGRES_USER: app
-        POSTGRES_PASSWORD: secret
-        POSTGRES_DB: ratings
-      volumes:
-        - ratings-db-data:/var/lib/postgresql/data
-        - ./rating-and-review-service/db:/docker-entrypoint-initdb.d
-      networks:
-        - team-net
-      healthcheck:
-        test: ['CMD-SHELL', 'pg_isready -U app -d drivers']
-        interval: 5s
-        timeout: 5s
-        retries: 5
-        start_period: 10s
-      
-    pricing-db:
-      image: postgres:16
-      container_name: rating
-      restart: unless-stopped
-      environment:
-        POSTGRES_USER: app
-        POSTGRES_PASSWORD: secret
-        POSTGRES_DB: pricing
-      volumes:
-        - pricing-db-data:/var/lib/postgresql/data
-      networks:
-        - team-net
-      healthcheck:
-        test: ['CMD-SHELL', 'pg_isready -U app -d drivers']
-        interval: 5s
-        timeout: 5s
-        retries: 5
-        start_period: 10s
+
+  rating-db:
+    image: postgres:16
+    container_name: rating-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: secret
+      POSTGRES_DB: ratings
+    volumes:
+      - ratings-db-data:/var/lib/postgresql/data
+      - ./rating-and-review-service/db:/docker-entrypoint-initdb.d
+    networks:
+      - team-net
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U app -d ratings']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  pricing-db:
+    image: postgres:16
+    container_name: pricing-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: secret
+      POSTGRES_DB: pricing
+    volumes:
+      - pricing-db-data:/var/lib/postgresql/data
+    networks:
+      - team-net
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U app -d pricing']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
 
   # ── Core Services ──────────────────────────────────────────────────────────
@@ -256,7 +258,7 @@ services:
       retries: 3
       start_period: 15s
     depends_on:
-      driver-db:
+      rating-db:
         condition: service_healthy
       order-service:
         condition: service_healthy
