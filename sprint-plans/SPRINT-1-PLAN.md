@@ -18,7 +18,7 @@ By the end of the spring, we will get our core services running in Docker Compos
 | ----------- | ----------------------------------------------- |
 | [Dev, Emily and Kanika]      | `[service-dir]/`, `[service-dir]/db/schema.sql` |
 | [Beatrice and Raymond]      | `[service-dir]/`, `compose.yml` additions       |
-| [Shao and Luka]      | `k6/sprint-1.js`, `[worker-dir]/`               |
+| [Shao and Luka]      | `k6/sprint-1.js`, `compose.yml` additions    |
 
 Each person must have meaningful commits in the paths they claim. Ownership is verified by:
 
@@ -49,9 +49,9 @@ I am also excited to work on this part! - Beatrice Calvelo
 
 ### [Shao and Luka]
 
-- [ ] Wire `depends_on: condition: service_healthy` in `compose.yml`
-- [ ] Write `k6/sprint-1.js` baseline load test
-- [ ] Write `README.md` startup instructions and endpoint list
+- [√] Wire `depends_on: condition: service_healthy` in `compose.yml`
+- [√] Write `k6/sprint-1.js` baseline load test
+- [√] Write `README.md` startup instructions and endpoint list
 
 ---
 
