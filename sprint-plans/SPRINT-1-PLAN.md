@@ -37,7 +37,7 @@ git log --author="Name" --oneline -- path/to/directory/
 - [ ] Write `db/schema.sql` and seed script
 - [ ] Add `healthcheck` directive to `compose.yml`
 
-### [Beatrice and Raymond]
+### [Beatrice, Rishi and Raymond]
 
 I Raymond Huang am super exited to begin working on this part
 I am also excited to work on this part! - Beatrice Calvelo
