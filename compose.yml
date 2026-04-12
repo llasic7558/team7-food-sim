@@ -106,6 +106,8 @@ services:
   restaurant-service:
     build: ./restaurant-service
     container_name: restaurant-service
+    ports:                      
+      - "8002:8000" 
     restart: unless-stopped
     networks:
       - team-net
@@ -129,6 +131,8 @@ services:
   order-service:
     build: ./order-service
     container_name: order-service
+    ports:                      
+      - "8001:8000"    
     restart: unless-stopped
     networks:
       - team-net
@@ -155,6 +159,8 @@ services:
   driver-service:
     build: ./driver-service
     container_name: driver-service
+    ports:                      
+      - "8003:8000" 
     restart: unless-stopped
     networks:
       - team-net
