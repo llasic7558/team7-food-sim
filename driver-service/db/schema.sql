@@ -1,6 +1,6 @@
 CREATE TABLE IF NOT EXISTS drivers (
   id SERIAL PRIMARY KEY,
-  name CHAR NOT NULL,
-  status CHAR NOT NULL DEFAULT 'Free',
-  location CHAR
+  name TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'Free',
+  location TEXT
 );
