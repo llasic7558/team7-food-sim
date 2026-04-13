@@ -1,72 +1,97 @@
-import { createClient } from 'redis'
-
 const express = require('express');
-const pool = require('./db');
-
-// adding redis
-const redis = createClient({ url: process.env.REDIS_URL});
-await redis.connect();
+const { createClient } = require('redis');
+const db = require('./db');
 
 const app = express();
 const PORT = process.env.PORT || 8000;
+const startTime = Date.now();
 
 app.use(express.json());
 
+const redis = createClient({ url: process.env.REDIS_URL });
+redis.on('error', (err) => console.error('Redis error:', err));
+redis.connect();
+
+// Health check
 app.get('/health', async (_req, res) => {
-  //store checking
   const checks = {};
   let healthy = true;
 
-  res.json({ status: 'ok' });
+  // Check database
+  const dbStart = Date.now();
+  try {
+    await db.query('SELECT 1');
+    checks.database = { status: 'healthy', latency_ms: Date.now() - dbStart };
+  } catch (err) {
+    checks.database = { status: 'unhealthy', error: err.message };
+    healthy = false;
+  }
 
-  //check Redis
+  // Check Redis
   const redisStart = Date.now();
   try {
-    const pong = await redis.ping();
-    if (pong !== 'PONG') throw new Error(`unexpected response: ${pong}`)
+    await redis.ping();
     checks.redis = { status: 'healthy', latency_ms: Date.now() - redisStart };
   } catch (err) {
     checks.redis = { status: 'unhealthy', error: err.message };
     healthy = false;
   }
 
-  const body = {
+  res.status(healthy ? 200 : 503).json({
     status: healthy ? 'healthy' : 'unhealthy',
-    service: process.env.SERVICE_NAME ?? 'unknown',
+    service: process.env.SERVICE_NAME || 'restaurant-service',
     timestamp: new Date().toISOString(),
     uptime_seconds: Math.floor((Date.now() - startTime) / 1000),
     checks,
-  }
-
-  res.status(healthy ? 200 : 503).json(body);
-
-});
-
-app.get('/menu', (_req, res) => {
-  res.json({
-    message: 'Menu endpoint (stub)',
-    data: [
-      { id: 1, name: 'Pizza', price: 12.99 },
-      { id: 2, name: 'Burger', price: 9.99 },
-    ],
   });
 });
 
-// test synchronous call to other service, wait until other service is added
-app.get('/test-service', async (_req, res) => {
+app.get('/restaurants', async (_req, res) => {
   try {
-    const response = await fetch('http://localhost:9000/health'); // replace with real service
-    const data = await response.json();
+    const result = await db.query("SELECT * FROM restaurants ORDER BY name")
+    res.json({restaurants: result.rows})
+  } catch (error) {
+    res.status(500).json({ error: 'internal server error' });
+  }
+});
 
-    res.json({
-      message: 'Successfully reached other service',
-      data,
-    });
+app.get('/restaurants/search', async (req, res) => {
+  const { name } = req.query;
+  if (!name) {
+    return res.status(400).json({ error: 'name query parameter is required' });
+  }
+  try {
+    // non case senstiive loop up 
+    const result = await db.query('SELECT * FROM restaurants WHERE name ILIKE $1', [`%${name}%`]);
+    res.json({ restaurants: result.rows });
   } catch (err) {
-    res.status(500).json({
-      message: 'Failed to reach other service',
-      error: err.message,
-    });
+    res.status(500).json({ error: 'internal server error' });
+  }
+});
+
+app.get('/restaurants/:id', async (req, res) => {
+  try {
+    const result = await db.query('SELECT * FROM restaurants WHERE id = $1', [req.params.id]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'restaurant not found', id: req.params.id });
+    }
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: 'internal server error' });
+  }
+});
+
+// Get menu for a restaurant
+app.get('/restaurants/:id/menu', async (req, res) => {
+  try {
+    const restaurant = await db.query('SELECT * FROM restaurants WHERE id = $1', [req.params.id]);
+    if (restaurant.rows.length === 0) {
+      return res.status(404).json({ error: 'restaurant not found', id: req.params.id });
+    }
+    const items = await db.query('SELECT * FROM menu_items WHERE restaurant_id = $1', [req.params.id]);
+    res.json({ restaurant_id: req.params.id, items: items.rows });
+  } catch (err) {
+    res.status(500).json({ error: 'internal server error' });
   }
 });
 
