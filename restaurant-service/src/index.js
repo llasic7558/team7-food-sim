@@ -43,8 +43,16 @@ app.get('/health', async (_req, res) => {
 });
 
 app.get('/menu', (_req, res) => {
-  console.log('menu');
+  res.json({
+    message: 'Menu endpoint (stub)',
+    data: [
+      { id: 1, name: 'Pizza', price: 12.99 },
+      { id: 2, name: 'Burger', price: 9.99 },
+    ],
+  });
 });
+
+
 
 app.listen(PORT, () => {
   console.log(`restaurant-service listening on port ${PORT}`);
