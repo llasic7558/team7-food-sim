@@ -1,0 +1,1 @@
+-- TODO: ratings table, restaurant aggregate scores
