@@ -158,6 +158,8 @@ services:
     restart: unless-stopped
     networks:
       - team-net
+    ports:
+      - "8000:8000"
     environment:
       DATABASE_URL: postgres://app:secret@driver-db:5432/drivers
       REDIS_URL: redis://redis:6379
