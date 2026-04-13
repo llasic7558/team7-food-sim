@@ -52,7 +52,23 @@ app.get('/menu', (_req, res) => {
   });
 });
 
+// test synchronous call to other service, wait until other service is added
+app.get('/test-service', async (_req, res) => {
+  try {
+    const response = await fetch('http://localhost:9000/health'); // replace with real service
+    const data = await response.json();
 
+    res.json({
+      message: 'Successfully reached other service',
+      data,
+    });
+  } catch (err) {
+    res.status(500).json({
+      message: 'Failed to reach other service',
+      error: err.message,
+    });
+  }
+});
 
 app.listen(PORT, () => {
   console.log(`restaurant-service listening on port ${PORT}`);
