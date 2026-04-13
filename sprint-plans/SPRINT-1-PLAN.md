@@ -1,4 +1,4 @@
-# Sprint 1 Plan — [Team Name]
+# Sprint 1 Plan — Team 7
 
 **Sprint:** 1 — Foundation  
 **Dates:** 04.07 → 04.14  
@@ -14,11 +14,16 @@ By the end of the spring, we will get our core services running in Docker Compos
 
 ## Ownership
 
-| Team Member | Files / Directories Owned This Sprint           |
-| ----------- | ----------------------------------------------- |
-| [Dev, Emily and Kanika]      | `[service-dir]/`, `[service-dir]/db/schema.sql` |
-| [Beatrice and Raymond]      | `[service-dir]/`, `compose.yml` additions       |
-| [Shao and Luka]      | `k6/sprint-1.js`, `compose.yml` additions    |
+| Team Member | Files / Directories Owned This Sprint |
+| ----------- | ------------------------------------- |
+| Dev (dev8mehta) | `restaurant-service/` initial setup, sprint plan docs |
+| Beatrice Calvelo | `restaurant-service/` Redis health check, `/menu` stub, sync call test |
+| Emily Joyce | `driver-service/` full implementation (schema, seed, Dockerfile, index.js, db.js, compose.yml) |
+| Kanika (kanikak1904) | `order-service/` Flask implementation (on `kanika` branch, not merged) |
+| Rishi Patel | `order-service/` Redis health check attempt (on `rishi/health-redis-check` branch) |
+| Raymond Huang | Sprint plan documentation |
+| Shao Qin Tan | `compose.yml` wiring, `k6/sprint-1.js`, `README.md` |
+| Luka (llasic7558) | `compose.yml` fixes, `restaurant-service/db/` schema + seed, `restaurant-service/src/` DB connection, `k6/` test updates, `README.md`, skeleton directories |
 
 Each person must have meaningful commits in the paths they claim. Ownership is verified by:
 

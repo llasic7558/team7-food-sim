@@ -1,24 +1,36 @@
-# Sprint 1 Report — [Team Name]
+# Sprint 1 Report — Team 7
 
 **Sprint:** 1 — Foundation  
 **Tag:** `sprint-1`  
-**Submitted:** [date, before 04.14 class]
+**Submitted:** 04.13
 
 ---
 
 ## What We Built
 
-[One or two paragraphs. What is running? What does `docker compose up` produce? What endpoints are live?]
+
+Running `docker compose up` starts three core services (restaurant-service, driver-service, order-service), three Postgres databases, a shared Redis instance, and a Holmes investigation container. 
+
+The restaurant-service connects to its own Postgres and Redis exposing its endpoints.
+
+ The driver-service connects to its own Postgres and exposes its endpoints. The order-service skeleton is in place but not yet functional.
+ 
+A k6 baseline load test hits the restaurant and driver read endpoints with 20 VUs.
 
 ---
 
 ## Individual Contributions
 
-| Team Member | What They Delivered                                     | Key Commits            |
-| ----------- | ------------------------------------------------------- | ---------------------- |
-| [Name]      | [e.g. order-service with DB schema, health endpoint]    | [short SHA or PR link] |
-| [Name]      | [e.g. restaurant-service, synchronous call integration] |                        |
-| [Name]      | [e.g. compose.yml wiring, k6 baseline script]           |                        |
+| Team Member | What They Delivered | Key Commits |
+| ----------- | ------------------- | ----------- |
+| Dev (dev8mehta) | Initial restaurant-service Express app, sprint plan docs | `758457a`, `26427a6`, `3cd7af8` |
+| Beatrice Calvelo | Restaurant-service Redis health check, `GET /menu` stub, sync call test | `9803c1d`, `a4881d8`, `083b7bb` |
+| Emily Joyce | Full driver-service implementation (schema, seed, Dockerfile, Express app, compose.yml) | `81cb1ca`, `d7af189`, `1ad2077`, `b779e38`, `130be86` |
+| Kanika (kanikak1904) | Order-service Flask implementation (on `kanika` branch, not merged) | `9eecbd9` |
+| Rishi Patel | Order-service Redis health check attempt (on branch, not merged) | `ff0865c`, `81c9de2` |
+| Raymond Huang | Sprint plan documentation | `3ee6879` |
+| Shao Qin Tan | Compose.yml wiring, k6 baseline test, README.md | `0658044` |
+| Luka (llasic7558) | Compose.yml fixes, restaurant-service DB schema/seed/connection, k6 test updates, README, skeleton dirs for all services | `faa224d`, `26b4ee2`, `31f40bd`, `fdcb373`, `57cee59` |
 
 Verify with:
 
@@ -40,8 +52,11 @@ git log --author="Name" --oneline -- path/to/directory/
 
 ## What Is Not Working / Cut
 
-[Be honest. What did you not finish? What did you cut from the sprint plan and why? How will you address it in Sprint 2?]
+The Order Service was not delveired on time before class. 
 
+Due to lateness in completing services connecting a service to another service could not be done before the start of the next sprint.
+
+Every person needs to communicate with where they are at in their work and not leave it until the night before. 
 ---
 
 ## k6 Baseline Results
@@ -101,4 +116,4 @@ These numbers are your baseline. Sprint 2 caching should improve them measurably
 
 ## Blockers and Lessons Learned
 
-[What slowed you down? What would you do differently? What surprised you?]
+People not getting their work done early so others could build off of it or test what they have. 
