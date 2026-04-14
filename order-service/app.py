@@ -39,6 +39,22 @@ RESTAURANT_SERVICE_URL = os.environ.get(
 )
 
 
+def _menu_row_key(row: dict) -> str | None:
+    """Restaurant menu may use `id` or `item_id`; normalize to string for lookup."""
+    raw = row.get("item_id", row.get("id"))
+    if raw is None:
+        return None
+    return str(raw)
+
+
+def _line_item_key(line: dict) -> str | None:
+    """Order line may use `item_id`, `menu_item_id`, or `id`."""
+    raw = line.get("item_id") or line.get("menu_item_id") or line.get("id")
+    if raw is None:
+        return None
+    return str(raw)
+
+
 def validate_items_with_restaurant(restaurant_id: str, items: list) -> tuple[bool, str, float]:
     """
     Calls the Restaurant Service synchronously to validate menu items and
@@ -60,15 +76,25 @@ def validate_items_with_restaurant(restaurant_id: str, items: list) -> tuple[boo
         return False, "Failed to retrieve menu", 0.0
 
     body = resp.json()
-    menu = {item["item_id"]: item for item in body.get("items", [])}
+    menu: dict[str, dict] = {}
+    for item in body.get("items", []):
+        key = _menu_row_key(item)
+        if key:
+            menu[key] = item
 
     total = 0.0
     for line in items:
-        item_id = line.get("item_id")
-        qty     = line.get("quantity", 1)
-        if item_id not in menu:
-            return False, f"Item '{item_id}' not on menu", 0.0
-        total += menu[item_id]["price"] * qty
+        item_key = _line_item_key(line)
+        if item_key is None:
+            return False, "Each line item must include item_id (or menu_item_id / id)", 0.0
+        qty = line.get("quantity", 1)
+        if item_key not in menu:
+            return False, f"Item '{item_key}' not on menu", 0.0
+        try:
+            price = float(menu[item_key]["price"])
+        except (TypeError, ValueError, KeyError):
+            return False, "Invalid menu item price from restaurant service", 0.0
+        total += price * qty
 
     surge_multiplier = body.get("surge_multiplier", 1.0)
     total *= surge_multiplier
@@ -84,7 +110,32 @@ def push_notification(event: str, order: Order):
 
 @app.route("/health")
 def health():
-    return jsonify({"status": "ok"}), 200
+    checks = {}
+    healthy = True
+
+    # Database health check
+    try:
+        db.session.execute(db.text("SELECT 1"))
+        checks["database"] = {"status": "healthy"}
+    except Exception as exc:
+        checks["database"] = {"status": "unhealthy", "error": str(exc)}
+        healthy = False
+
+    # Redis health check
+    try:
+        redis_client.ping()
+        checks["redis"] = {"status": "healthy"}
+    except Exception as exc:
+        checks["redis"] = {"status": "unhealthy", "error": str(exc)}
+        healthy = False
+
+    return jsonify(
+        {
+            "status": "healthy" if healthy else "unhealthy",
+            "service": os.environ.get("SERVICE_NAME", "order-service"),
+            "checks": checks,
+        }
+    ), (200 if healthy else 503)
 
 
 @app.route("/orders", methods=["GET"])
