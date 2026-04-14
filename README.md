@@ -12,7 +12,7 @@
 | Team Member | Services / Components Owned                          |
 | ----------- | ---------------------------------------------------- |
 | [Dev, Emily and Kanika]      | `restaurant-service/`, `restaurant-service/db/`      |
-| [Beatrice and Raymond]      | `order-service/`, `order-service/db/`                |
+| [Beatrice, Rishi and Raymond]      | `order-service/`, `order-service/db/`                |
 | [Shao and Luka]      | `driver-service/`, `compose.yml`, `k6/`, `README.md` |
 
 > Ownership is verified by `git log --author`. Each person must have meaningful commits in the directories they claim.
