@@ -1,1 +1,1 @@
--- TODO: seed data
+-- Orders are created via POST /orders; no static seed data for Sprint 1.
