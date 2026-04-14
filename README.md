@@ -1,7 +1,7 @@
 # Team 7 — Food Delivery Coordination
 
 **Course:** COMPSCI 426  
-**Team:** [Name], [Name], [Name]  
+**Team:** [Dev, Emily and Kanika], [Beatrice and Raymond], [Shao and Luka]  
 **System:** Food Delivery Coordination  
 **Repository:** [GitHub URL]
 
@@ -11,9 +11,9 @@
 
 | Team Member | Services / Components Owned                          |
 | ----------- | ---------------------------------------------------- |
-| [Name]      | `restaurant-service/`, `restaurant-service/db/`      |
-| [Name]      | `order-service/`, `order-service/db/`                |
-| [Name]      | `driver-service/`, `compose.yml`, `k6/`, `README.md` |
+| [Dev, Emily and Kanika]      | `restaurant-service/`, `restaurant-service/db/`      |
+| [Beatrice, Rishi and Raymond]      | `order-service/`, `order-service/db/`                |
+| [Shao and Luka]      | `driver-service/`, `compose.yml`, `k6/`, `README.md` |
 
 > Ownership is verified by `git log --author`. Each person must have meaningful commits in the directories they claim.
 
