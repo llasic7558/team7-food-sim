@@ -28,7 +28,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && ln -sf /usr/bin/fdfind /usr/local/bin/fd \
     && rm -rf /var/lib/apt/lists/*
 
-# ── bat ───────────────────────────────────────────────────────────────────────
+# ── bat (batcat on Ubuntu — alias to bat) ─────────────────────────────────────
 RUN apt-get update && apt-get install -y --no-install-recommends bat \
     && ln -sf /usr/bin/batcat /usr/local/bin/bat \
     && rm -rf /var/lib/apt/lists/*
@@ -43,7 +43,7 @@ RUN set -eux; \
     && dpkg -i /tmp/lsd.deb \
     && rm /tmp/lsd.deb
 
-# ── yq ────────────────────────────────────────────────────────────────────────
+# ── yq (YAML processor, complements jq) ──────────────────────────────────────
 RUN set -eux; \
     DPKG_ARCH=$(dpkg --print-architecture); \
     case "$DPKG_ARCH" in \
@@ -61,22 +61,6 @@ RUN curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - \
     && npm install -g npm@latest \
     && rm -rf /var/lib/apt/lists/*
 
-# ── k6 (binary — skips flaky apt/GPG setup) ──────────────────────────────────
-RUN set -eux; \
-    DPKG_ARCH=$(dpkg --print-architecture); \
-    case "$DPKG_ARCH" in \
-        amd64) K6_ARCH="amd64" ;; \
-        arm64) K6_ARCH="arm64" ;; \
-        *) echo "Unsupported arch: $DPKG_ARCH" && exit 1 ;; \
-    esac; \
-    K6_VERSION="v0.55.0"; \
-    curl -fsSL "https://github.com/grafana/k6/releases/download/${K6_VERSION}/k6-${K6_VERSION}-linux-${K6_ARCH}.tar.gz" \
-        | tar -xz -C /tmp; \
-    mv "/tmp/k6-${K6_VERSION}-linux-${K6_ARCH}/k6" /usr/local/bin/k6; \
-    chmod +x /usr/local/bin/k6; \
-    k6 version
-
-# ── Neovim (latest release) ───────────────────────────────────────────────────
 # ── k6 ────────────────────────────────────────────────────────────────────────
 RUN set -eux; \
     DPKG_ARCH=$(dpkg --print-architecture); \
@@ -85,49 +69,6 @@ RUN set -eux; \
         arm64) K6_ARCH="arm64" ;; \
         *) echo "Unsupported arch: $DPKG_ARCH" && exit 1 ;; \
     esac; \
-    curl -fsSL "https://github.com/neovim/neovim/releases/latest/download/nvim-linux-${NVIM_ARCH}.tar.gz" \
-         | tar -xz -C /opt \
-    && ln -sf "/opt/nvim-linux-${NVIM_ARCH}/bin/nvim" /usr/local/bin/nvim
-
-# ── LazyVim starter config ────────────────────────────────────────────────────
-RUN git clone https://github.com/LazyVim/starter /root/.config/nvim \
-    && rm -rf /root/.config/nvim/.git
-
-# ── Shell conveniences ────────────────────────────────────────────────────────
-RUN cat >> /root/.bashrc << 'EOF'
-
-# lsd aliases
-alias ll="lsd -la"
-alias l="lsd -l"
-alias lt="lsd --tree"
-
-# bat instead of cat
-alias cat="bat --paging=never"
-
-# Poll a health endpoint every 2s
-# usage: healthcheck http://my-service:8000/health
-healthcheck() {
-    watch -n 2 "curl -s $1 | jq ."
-}
-
-# Tail logs for a compose service
-# usage: logs order-service
-logs() {
-    docker compose -f /workspace/compose.yml logs -f "$1"
-}
-
-# Quick redis inspection
-# usage: rkeys queue:*
-rkeys() {
-    redis-cli -u "$REDIS_URL" keys "$1"
-}
-
-# Peek at the head of a Redis list without consuming it
-# usage: rpeek queue:order_dispatch
-rpeek() {
-    redis-cli -u "$REDIS_URL" lrange "$1" 0 4
-}
-EOF
     K6_VER=$(curl -fsSL "https://api.github.com/repos/grafana/k6/releases/latest" \
              | jq -r .tag_name); \
     curl -fsSL "https://github.com/grafana/k6/releases/download/${K6_VER}/k6-${K6_VER}-linux-${K6_ARCH}.tar.gz" \
@@ -141,4 +82,5 @@ RUN cat /tmp/.bashrc_extras >> /root/.bashrc
 
 WORKDIR /workspace
 
+# Stay alive so `docker compose exec holmes bash` works
 CMD ["sleep", "infinity"]
