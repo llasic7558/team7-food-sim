@@ -118,6 +118,100 @@ app.post('/ratings', async (req, res) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// GET /ratings/restaurant/:id — get all ratings for a restaurant (cached)
+// ---------------------------------------------------------------------------
+
+app.get('/ratings/restaurant/:id', async (req, res) => {
+  const restaurantId = req.params.id;
+  const cacheKey = `ratings:restaurant:${restaurantId}`;
+
+  // Check Redis cache first
+  try {
+    const cached = await redis.get(cacheKey);
+    if (cached) {
+      console.log(`Cache HIT for ${cacheKey}`);
+      return res.json(JSON.parse(cached));
+    }
+    console.log(`Cache MISS for ${cacheKey}`);
+  } catch (err) {
+    console.error('Redis read error:', err.message);
+  }
+
+  try {
+    const ratingsResult = await db.query(
+      'SELECT * FROM ratings WHERE restaurant_id = $1 ORDER BY created_at DESC',
+      [restaurantId]
+    );
+
+    const avgResult = await db.query(
+      'SELECT COUNT(*)::int AS count, COALESCE(AVG(score), 0) AS average FROM ratings WHERE restaurant_id = $1',
+      [restaurantId]
+    );
+
+    const body = {
+      restaurant_id: parseInt(restaurantId),
+      average_score: parseFloat(parseFloat(avgResult.rows[0].average).toFixed(2)),
+      total_ratings: avgResult.rows[0].count,
+      ratings: ratingsResult.rows,
+    };
+
+    try {
+      await redis.setEx(cacheKey, CACHE_TTL, JSON.stringify(body));
+    } catch (err) {
+      console.error('Redis write error:', err.message);
+    }
+
+    res.json(body);
+  } catch (err) {
+    console.error('Error fetching ratings:', err.message);
+    res.status(500).json({ error: 'internal server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /rankings — restaurant rankings by average score (cached)
+// ---------------------------------------------------------------------------
+
+app.get('/rankings', async (_req, res) => {
+  const cacheKey = 'rankings';
+
+  try {
+    const cached = await redis.get(cacheKey);
+    if (cached) {
+      console.log('Cache HIT for rankings');
+      return res.json(JSON.parse(cached));
+    }
+    console.log('Cache MISS for rankings');
+  } catch (err) {
+    console.error('Redis read error:', err.message);
+  }
+
+  try {
+    const result = await db.query(
+      `SELECT restaurant_id,
+              COUNT(*)::int AS total_ratings,
+              ROUND(AVG(score), 2) AS average_score
+       FROM ratings
+       GROUP BY restaurant_id
+       ORDER BY average_score DESC, total_ratings DESC`
+    );
+
+    const body = { rankings: result.rows };
+
+    try {
+      await redis.setEx(cacheKey, CACHE_TTL, JSON.stringify(body));
+    } catch (err) {
+      console.error('Redis write error:', err.message);
+    }
+
+    res.json(body);
+  } catch (err) {
+    console.error('Error fetching rankings:', err.message);
+    res.status(500).json({ error: 'internal server error' });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`rating-and-review-service listening on port ${PORT}`);
 });
