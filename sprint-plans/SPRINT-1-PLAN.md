@@ -1,4 +1,4 @@
-# Sprint 1 Plan — [Team Name]
+# Sprint 1 Plan — Team 7
 
 **Sprint:** 1 — Foundation  
 **Dates:** 04.07 → 04.14  
@@ -14,11 +14,16 @@ By the end of the spring, we will get our core services running in Docker Compos
 
 ## Ownership
 
-| Team Member | Files / Directories Owned This Sprint           |
-| ----------- | ----------------------------------------------- |
-| [Dev, Emily and Kanika]      | `[service-dir]/`, `[service-dir]/db/schema.sql` |
-| [Name]      | `[service-dir]/`, `compose.yml` additions       |
-| [Name]      | `k6/sprint-1.js`, `[worker-dir]/`               |
+| Team Member | Files / Directories Owned This Sprint |
+| ----------- | ------------------------------------- |
+| Dev (dev8mehta) | `restaurant-service/` initial setup, sprint plan docs |
+| Beatrice Calvelo | `restaurant-service/` Redis health check, `/menu` stub, sync call test |
+| Emily Joyce | `driver-service/` full implementation (schema, seed, Dockerfile, index.js, db.js, compose.yml) |
+| Kanika (kanikak1904) | `order-service/` Flask implementation (on `kanika` branch, not merged) |
+| Rishi Patel | `order-service/` Redis health check attempt (on `rishi/health-redis-check` branch) |
+| Raymond Huang | Sprint plan documentation |
+| Shao Qin Tan | `compose.yml` wiring, `k6/sprint-1.js`, `README.md` |
+| Luka (llasic7558) | `compose.yml` fixes, `restaurant-service/db/` schema + seed, `restaurant-service/src/` DB connection, `k6/` test updates, `README.md`, skeleton directories |
 
 Each person must have meaningful commits in the paths they claim. Ownership is verified by:
 
@@ -37,24 +42,27 @@ git log --author="Name" --oneline -- path/to/directory/
 - [ ] Write `db/schema.sql` and seed script
 - [ ] Add `healthcheck` directive to `compose.yml`
 
-### [Name]
+### [Beatrice, Rishi and Raymond]
+
+I Raymond Huang am super exited to begin working on this part
+I am also excited to work on this part! - Beatrice Calvelo
 
 - [ ] Set up `[service]/` with Express + Redis connection
 - [ ] Implement `GET /health` with Redis check
 - [ ] Implement `GET /[resource]` — stub returning placeholder data
 - [ ] Test synchronous call to [other service]
 
-### [Name]
+### [Shao and Luka]
 
-- [ ] Wire `depends_on: condition: service_healthy` in `compose.yml`
-- [ ] Write `k6/sprint-1.js` baseline load test
-- [ ] Write `README.md` startup instructions and endpoint list
+- [√] Wire `depends_on: condition: service_healthy` in `compose.yml`
+- [√] Write `k6/sprint-1.js` baseline load test
+- [√] Write `README.md` startup instructions and endpoint list
 
 ---
 
 ## Risks
 
-[What could go wrong? What are you uncertain about? What will you do if a task takes longer than expected?]
+We need to ensure that duplicate orders with the same idempotency key return the original order. Since different people are working on different things, we run the risk of people working on the same task and overwriting someone else's work- so we must collaborate well and communicate with each other so we are supporting each other well.
 
 ---
 

@@ -1,23 +1,19 @@
-# Team 7 — Food Processing Sim
+# Team 7 — Food Delivery Coordination
 
 **Course:** COMPSCI 426  
-**Team:** Beatrice, Dev, Emily, Kanika, Ray, Shaoqin, Luka
-**System:** Food Delivery 
-**Repository:** [\[GitHub URL — public fork of https://github.com/umass-cs-426/starter-project\]](https://github.com/llasic7558/team7-food-sim)
+**Team:** [Dev, Emily and Kanika], [Beatrice and Raymond], [Shao and Luka]  
+**System:** Food Delivery Coordination  
+**Repository:** [GitHub URL]
 
 ---
 
 ## Team and Service Ownership
 
-| Team Member | Services / Components Owned                            |
-| ----------- | ------------------------------------------------------ |
-| Beatrice   |  |
-| Dev    |        |
-| Emily    |                       |
-| Kanika      |                    |
-| Ray      |                     |
-| Shaoqin      |                     |
-| Luka     |                    |
+| Team Member | Services / Components Owned                          |
+| ----------- | ---------------------------------------------------- |
+| [Dev, Emily and Kanika]      | `restaurant-service/`, `restaurant-service/db/`      |
+| [Beatrice, Rishi and Raymond]      | `order-service/`, `order-service/db/`                |
+| [Shao and Luka]      | `driver-service/`, `compose.yml`, `k6/`, `README.md` |
 
 > Ownership is verified by `git log --author`. Each person must have meaningful commits in the directories they claim.
 
@@ -29,9 +25,6 @@
 # Start everything (builds images on first run)
 docker compose up --build
 
-# Start with service replicas (Sprint 4)
-docker compose up --scale your-service=3
-
 # Verify all services are healthy
 docker compose ps
 
@@ -42,17 +35,16 @@ docker compose logs -f
 docker compose exec holmes bash
 ```
 
-### Base URLs (development)
+### Base URLs (from Holmes)
 
 ```
-[your-service-name]    http://localhost:[port]
-[your-service-name]    http://localhost:[port]
-[worker-name]          http://localhost:[port]   (health endpoint only)
-holmes                 (no port — access via exec)
+restaurant-service    http://restaurant-service:8000
+order-service         http://order-service:8000
+driver-service        http://driver-service:8000
 ```
 
-> From inside holmes, services are reachable by name:
-> `curl http://your-service:3000/health`
+> From inside Holmes, services are reachable by name:
+> `curl http://restaurant-service:8000/health | jq .`
 >
 > See [holmes/README.md](holmes/README.md) for a full tool reference.
 
@@ -60,28 +52,23 @@ holmes                 (no port — access via exec)
 
 ## System Overview
 
-[One paragraph describing what your system does and how the services interact.
-Include which service calls which, what queues exist, and how data flows.]
+Users place food delivery orders from local restaurants. The **Order Service** accepts incoming orders and validates each order's restaurant and menu items by making a synchronous HTTP call to the **Restaurant Service**. The **Restaurant Service** manages restaurant profiles, menus, and availability, backed by its own PostgreSQL database. The **Driver Service** tracks driver availability and location in a separate PostgreSQL database. A shared Redis instance is connected to all services for future caching and queue support. Each service exposes a `/health` endpoint that checks its database and Redis connections.
 
 ---
 
 ## API Reference
 
-<!--
-  Document every endpoint for every service.
-  Follow the format described in the project documentation: compact code block notation, then an example curl and an example response. Add a level-2 heading per service, level-3 per endpoint.
--->
-
 ---
 
-### [Service Name]
+## Restaurant Service
 
 ### GET /health
 
 ```
 GET /health
 
-  Returns the health status of this service and its dependencies.
+  Returns the health status of the restaurant service and its dependencies
+  (PostgreSQL and Redis).
 
   Responses:
     200  Service and all dependencies healthy
@@ -91,7 +78,7 @@ GET /health
 **Example request:**
 
 ```bash
-curl http://localhost:[port]/health
+curl http://restaurant-service:8000/health
 ```
 
 **Example response (200):**
@@ -99,24 +86,467 @@ curl http://localhost:[port]/health
 ```json
 {
   "status": "healthy",
-  "db": "ok",
-  "redis": "ok"
-}
-```
-
-**Example response (503):**
-
-```json
-{
-  "status": "unhealthy",
-  "db": "ok",
-  "redis": "error: connection refused"
+  "service": "restaurant-service",
+  "timestamp": "2026-04-07T10:23:01.000Z",
+  "uptime_seconds": 3612,
+  "checks": {
+    "database": { "status": "healthy", "latency_ms": 2 },
+    "redis": { "status": "healthy", "latency_ms": 1 }
+  }
 }
 ```
 
 ---
 
-<!-- Add the rest of your endpoints below. One ### section per endpoint. -->
+### GET /restaurants
+
+```
+GET /restaurants
+
+  Returns a list of all restaurants, ordered by name. Every request hits
+  the database (no caching in Sprint 1).
+
+  Responses:
+    200  Success — returns list of restaurants
+    500  Internal server error
+```
+
+**Example request:**
+
+```bash
+curl http://restaurant-service:8000/restaurants
+```
+
+**Example response (200):**
+
+```json
+{
+  "restaurants": [
+    {
+      "id": 1,
+      "name": "Bella Italia",
+      "cuisine": "Italian",
+      "address": "123 Main St",
+      "rating": "4.5"
+    }
+  ]
+}
+```
+
+---
+
+### GET /restaurants/search
+
+```
+GET /restaurants/search
+
+  Search restaurants by name (case-insensitive partial match).
+
+  Query:
+    name  string  required  Search term
+
+  Responses:
+    200  Success — returns matching restaurants
+    400  Missing name query parameter
+    500  Internal server error
+```
+
+**Example request:**
+
+```bash
+curl "http://restaurant-service:8000/restaurants/search?name=bella"
+```
+
+**Example response (200):**
+
+```json
+{
+  "restaurants": [
+    {
+      "id": 1,
+      "name": "Bella Italia",
+      "cuisine": "Italian",
+      "address": "123 Main St",
+      "rating": "4.5"
+    }
+  ]
+}
+```
+
+---
+
+### GET /restaurants/:id
+
+```
+GET /restaurants/:id
+
+  Returns full detail for a single restaurant.
+
+  Path:
+    id  integer  The restaurant's ID
+
+  Responses:
+    200  Success — returns restaurant detail
+    404  No restaurant found with that ID
+    500  Internal server error
+```
+
+**Example request:**
+
+```bash
+curl http://restaurant-service:8000/restaurants/1
+```
+
+**Example response (200):**
+
+```json
+{
+  "id": 1,
+  "name": "Bella Italia",
+  "cuisine": "Italian",
+  "address": "123 Main St",
+  "rating": "4.5"
+}
+```
+
+**Example response (404):**
+
+```json
+{
+  "error": "restaurant not found",
+  "id": "999"
+}
+```
+
+---
+
+### GET /restaurants/:id/menu
+
+```
+GET /restaurants/:id/menu
+
+  Returns all menu items for a restaurant.
+
+  Path:
+    id  integer  The restaurant's ID
+
+  Responses:
+    200  Success — returns list of menu items
+    404  Restaurant not found
+    500  Internal server error
+```
+
+**Example request:**
+
+```bash
+curl http://restaurant-service:8000/restaurants/1/menu
+```
+
+**Example response (200):**
+
+```json
+{
+  "restaurant_id": "1",
+  "items": [
+    {
+      "id": 1,
+      "restaurant_id": 1,
+      "name": "Margherita Pizza",
+      "description": "Classic tomato and mozzarella",
+      "price": "12.00",
+      "available": true
+    }
+  ]
+}
+```
+
+---
+
+## Order Service
+
+### GET /health
+
+```
+GET /health
+
+  Returns the health status of the order service and its dependencies
+  (PostgreSQL and Redis).
+
+  Responses:
+    200  Service and all dependencies healthy
+    503  One or more dependencies unreachable
+```
+
+**Example request:**
+
+```bash
+curl http://order-service:8000/health
+```
+
+**Example response (200):**
+
+```json
+{
+  "status": "healthy",
+  "service": "order-service",
+  "timestamp": "2026-04-07T10:23:01.000Z",
+  "uptime_seconds": 109,
+  "checks": {
+    "database": { "status": "healthy", "latency_ms": 2 },
+    "redis": { "status": "healthy", "latency_ms": 1 }
+  }
+}
+```
+
+---
+
+### POST /orders
+
+```
+POST /orders
+
+  Creates a new order. Validates the restaurant and menu items by making a
+  synchronous HTTP call to the Restaurant Service before creating the order.
+  Calculates total price from menu prices (including any surge multiplier).
+
+  Headers:
+    X-Idempotency-Key  string  required  Unique key to prevent duplicate orders
+
+  Body:
+    restaurant_id  string   required  ID of the restaurant
+    customer_id    string   required  ID of the customer
+    items          array    required  List of order items
+    items[].item_id   integer  required  ID of the menu item
+    items[].quantity  integer  optional  default=1  Number to order
+
+  Responses:
+    201  Order created successfully
+    200  Duplicate request — returns existing order for this idempotency key
+    400  Missing or invalid fields, or missing X-Idempotency-Key header
+    422  Invalid menu items or restaurant not found
+    500  Internal server error
+```
+
+**Example request:**
+
+```bash
+curl -X POST http://order-service:8000/orders \
+  -H "Content-Type: application/json" \
+  -H "X-Idempotency-Key: unique-key-123" \
+  -d '{
+    "restaurant_id": "1",
+    "customer_id": "customer-1",
+    "items": [
+      { "item_id": 1, "quantity": 2 },
+      { "item_id": 3, "quantity": 1 }
+    ]
+  }'
+```
+
+**Example response (201):**
+
+```json
+{
+  "id": 1,
+  "idempotency_key": "unique-key-123",
+  "customer_id": "customer-1",
+  "restaurant_id": "1",
+  "items": [
+    { "item_id": 1, "quantity": 2 },
+    { "item_id": 3, "quantity": 1 }
+  ],
+  "total_price": 32,
+  "status": "pending",
+  "driver_id": null,
+  "created_at": "2026-04-07T10:23:01.000Z",
+  "updated_at": "2026-04-07T10:23:01.000Z"
+}
+```
+
+---
+
+### GET /orders
+
+```
+GET /orders
+
+  Returns all orders, most recent first. Supports optional filters.
+
+  Query:
+    customer_id  string  optional  Filter by customer ID
+    status       string  optional  Filter by order status
+
+  Responses:
+    200  Success — returns list of orders
+    500  Internal server error
+```
+
+**Example request:**
+
+```bash
+curl http://order-service:8000/orders
+curl "http://order-service:8000/orders?customer_id=customer-1&status=delivered"
+```
+
+---
+
+### GET /orders/:id
+
+```
+GET /orders/:id
+
+  Returns a single order.
+
+  Path:
+    id  integer  The order's ID
+
+  Responses:
+    200  Success — returns order
+    404  Order not found
+    500  Internal server error
+```
+
+**Example request:**
+
+```bash
+curl http://order-service:8000/orders/1
+```
+
+---
+
+### PUT /orders/:id/status
+
+```
+PUT /orders/:id/status
+
+  Updates the status of an order. Used internally by workers to advance
+  order state.
+
+  Body:
+    status     string  required  New status (confirmed, dispatched, ready, in_transit, delivered, failed)
+    driver_id  string  optional  Driver assigned to the order
+
+  Responses:
+    200  Status updated successfully
+    400  Invalid status value
+    404  Order not found
+    500  Internal server error
+```
+
+**Example request:**
+
+```bash
+curl -X PUT http://order-service:8000/orders/1/status \
+  -H "Content-Type: application/json" \
+  -d '{ "status": "dispatched", "driver_id": "driver-1" }'
+```
+
+---
+
+### GET /orders/:id/verify-completed
+
+```
+GET /orders/:id/verify-completed
+
+  Checks whether an order has been delivered. Used by the Rating & Review
+  Service to confirm delivery before accepting a rating.
+
+  Path:
+    id  integer  The order's ID
+
+  Responses:
+    200  Returns completion status
+    404  Order not found
+    500  Internal server error
+```
+
+**Example request:**
+
+```bash
+curl http://order-service:8000/orders/1/verify-completed
+```
+
+**Example response (200):**
+
+```json
+{
+  "order_id": 1,
+  "completed": true
+}
+```
+
+---
+
+## Driver Service
+
+### GET /health
+
+```
+GET /health
+
+  Returns the health status of the driver service and its database connection.
+
+  Responses:
+    200  Service and database healthy
+    503  Database unreachable
+```
+
+**Example request:**
+
+```bash
+curl http://driver-service:8000/health
+```
+
+**Example response (200):**
+
+```json
+{
+  "status": "healthy",
+  "service": "driver-service",
+  "checks": {
+    "database": { "status": "healthy" }
+  }
+}
+```
+
+---
+
+### GET /drivers
+
+```
+GET /drivers
+
+  Returns all drivers. Optionally filter by status.
+
+  Query:
+    status  string  optional  Filter by driver status (Free, Busy)
+
+  Responses:
+    200  Success — returns list of drivers
+    500  Internal server error
+```
+
+**Example request:**
+
+```bash
+curl http://driver-service:8000/drivers
+curl "http://driver-service:8000/drivers?status=Free"
+```
+
+**Example response (200):**
+
+```json
+{
+  "drivers": [
+    {
+      "id": 1,
+      "name": "Joe",
+      "status": "Free",
+      "location": "Boston"
+    }
+  ]
+}
+```
 
 ---
 
