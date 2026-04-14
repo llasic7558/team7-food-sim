@@ -87,7 +87,7 @@ curl http://restaurant-service:8000/health
 {
   "status": "healthy",
   "service": "restaurant-service",
-  "timestamp": "2026-04-07T10:23:01Z",
+  "timestamp": "2026-04-07T10:23:01.000Z",
   "uptime_seconds": 3612,
   "checks": {
     "database": { "status": "healthy", "latency_ms": 2 },
@@ -123,12 +123,51 @@ curl http://restaurant-service:8000/restaurants
 {
   "restaurants": [
     {
-      "id": "a0a0a0a0-0001-4000-8000-000000000001",
+      "id": 1,
       "name": "Bella Italia",
       "cuisine": "Italian",
       "address": "123 Main St",
-      "rating": "4.5",
-      "created_at": "2026-04-07T10:00:00.000Z"
+      "rating": "4.5"
+    }
+  ]
+}
+```
+
+---
+
+### GET /restaurants/search
+
+```
+GET /restaurants/search
+
+  Search restaurants by name (case-insensitive partial match).
+
+  Query:
+    name  string  required  Search term
+
+  Responses:
+    200  Success — returns matching restaurants
+    400  Missing name query parameter
+    500  Internal server error
+```
+
+**Example request:**
+
+```bash
+curl "http://restaurant-service:8000/restaurants/search?name=bella"
+```
+
+**Example response (200):**
+
+```json
+{
+  "restaurants": [
+    {
+      "id": 1,
+      "name": "Bella Italia",
+      "cuisine": "Italian",
+      "address": "123 Main St",
+      "rating": "4.5"
     }
   ]
 }
@@ -144,7 +183,7 @@ GET /restaurants/:id
   Returns full detail for a single restaurant.
 
   Path:
-    id  string (UUID)  The restaurant's ID
+    id  integer  The restaurant's ID
 
   Responses:
     200  Success — returns restaurant detail
@@ -155,19 +194,18 @@ GET /restaurants/:id
 **Example request:**
 
 ```bash
-curl http://restaurant-service:8000/restaurants/a0a0a0a0-0001-4000-8000-000000000001
+curl http://restaurant-service:8000/restaurants/1
 ```
 
 **Example response (200):**
 
 ```json
 {
-  "id": "a0a0a0a0-0001-4000-8000-000000000001",
+  "id": 1,
   "name": "Bella Italia",
   "cuisine": "Italian",
   "address": "123 Main St",
-  "rating": "4.5",
-  "created_at": "2026-04-07T10:00:00.000Z"
+  "rating": "4.5"
 }
 ```
 
@@ -176,7 +214,7 @@ curl http://restaurant-service:8000/restaurants/a0a0a0a0-0001-4000-8000-00000000
 ```json
 {
   "error": "restaurant not found",
-  "id": "00000000-0000-0000-0000-000000000000"
+  "id": "999"
 }
 ```
 
@@ -190,7 +228,7 @@ GET /restaurants/:id/menu
   Returns all menu items for a restaurant.
 
   Path:
-    id  string (UUID)  The restaurant's ID
+    id  integer  The restaurant's ID
 
   Responses:
     200  Success — returns list of menu items
@@ -201,23 +239,22 @@ GET /restaurants/:id/menu
 **Example request:**
 
 ```bash
-curl http://restaurant-service:8000/restaurants/a0a0a0a0-0001-4000-8000-000000000001/menu
+curl http://restaurant-service:8000/restaurants/1/menu
 ```
 
 **Example response (200):**
 
 ```json
 {
-  "restaurant_id": "a0a0a0a0-0001-4000-8000-000000000001",
+  "restaurant_id": "1",
   "items": [
     {
-      "id": "b0b0b0b0-0001-4000-8000-000000000001",
-      "restaurant_id": "a0a0a0a0-0001-4000-8000-000000000001",
+      "id": 1,
+      "restaurant_id": 1,
       "name": "Margherita Pizza",
       "description": "Classic tomato and mozzarella",
-      "price": "12.99",
-      "available": true,
-      "created_at": "2026-04-07T10:00:00.000Z"
+      "price": "12.00",
+      "available": true
     }
   ]
 }
@@ -232,7 +269,8 @@ curl http://restaurant-service:8000/restaurants/a0a0a0a0-0001-4000-8000-00000000
 ```
 GET /health
 
-  Returns the health status of the order service and its dependencies.
+  Returns the health status of the order service and its dependencies
+  (PostgreSQL and Redis).
 
   Responses:
     200  Service and all dependencies healthy
@@ -245,6 +283,21 @@ GET /health
 curl http://order-service:8000/health
 ```
 
+**Example response (200):**
+
+```json
+{
+  "status": "healthy",
+  "service": "order-service",
+  "timestamp": "2026-04-07T10:23:01.000Z",
+  "uptime_seconds": 109,
+  "checks": {
+    "database": { "status": "healthy", "latency_ms": 2 },
+    "redis": { "status": "healthy", "latency_ms": 1 }
+  }
+}
+```
+
 ---
 
 ### POST /orders
@@ -254,19 +307,23 @@ POST /orders
 
   Creates a new order. Validates the restaurant and menu items by making a
   synchronous HTTP call to the Restaurant Service before creating the order.
+  Calculates total price from menu prices (including any surge multiplier).
+
+  Headers:
+    X-Idempotency-Key  string  required  Unique key to prevent duplicate orders
 
   Body:
-    restaurant_id  string (UUID)  required  UUID of the restaurant
-    customer_name  string         required  Name of the customer
-    items          array          required  List of order items
-    items[].menu_item_id  string (UUID)  required  UUID of the menu item
-    items[].quantity      integer        optional  default=1  Number to order
+    restaurant_id  string   required  ID of the restaurant
+    customer_id    string   required  ID of the customer
+    items          array    required  List of order items
+    items[].item_id   integer  required  ID of the menu item
+    items[].quantity  integer  optional  default=1  Number to order
 
   Responses:
     201  Order created successfully
-    400  Missing or invalid fields, or invalid menu item
-    404  Restaurant not found
-    503  Restaurant service unavailable
+    200  Duplicate request — returns existing order for this idempotency key
+    400  Missing or invalid fields, or missing X-Idempotency-Key header
+    422  Invalid menu items or restaurant not found
     500  Internal server error
 ```
 
@@ -275,12 +332,13 @@ POST /orders
 ```bash
 curl -X POST http://order-service:8000/orders \
   -H "Content-Type: application/json" \
+  -H "X-Idempotency-Key: unique-key-123" \
   -d '{
-    "restaurant_id": "a0a0a0a0-0001-4000-8000-000000000001",
-    "customer_name": "Alice",
+    "restaurant_id": "1",
+    "customer_id": "customer-1",
     "items": [
-      { "menu_item_id": "b0b0b0b0-0001-4000-8000-000000000001", "quantity": 2 },
-      { "menu_item_id": "b0b0b0b0-0001-4000-8000-000000000003", "quantity": 1 }
+      { "item_id": 1, "quantity": 2 },
+      { "item_id": 3, "quantity": 1 }
     ]
   }'
 ```
@@ -289,16 +347,19 @@ curl -X POST http://order-service:8000/orders \
 
 ```json
 {
-  "id": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d",
-  "restaurant_id": "a0a0a0a0-0001-4000-8000-000000000001",
-  "customer_name": "Alice",
-  "status": "pending",
-  "total": "34.97",
-  "created_at": "2026-04-07T10:23:01.000Z",
+  "id": 1,
+  "idempotency_key": "unique-key-123",
+  "customer_id": "customer-1",
+  "restaurant_id": "1",
   "items": [
-    { "menu_item_id": "b0b0b0b0-0001-4000-8000-000000000001", "name": "Margherita Pizza", "price": "12.99", "quantity": 2 },
-    { "menu_item_id": "b0b0b0b0-0001-4000-8000-000000000003", "name": "Tiramisu", "price": "8.99", "quantity": 1 }
-  ]
+    { "item_id": 1, "quantity": 2 },
+    { "item_id": 3, "quantity": 1 }
+  ],
+  "total_price": 32,
+  "status": "pending",
+  "driver_id": null,
+  "created_at": "2026-04-07T10:23:01.000Z",
+  "updated_at": "2026-04-07T10:23:01.000Z"
 }
 ```
 
@@ -309,7 +370,11 @@ curl -X POST http://order-service:8000/orders \
 ```
 GET /orders
 
-  Returns all orders, most recent first.
+  Returns all orders, most recent first. Supports optional filters.
+
+  Query:
+    customer_id  string  optional  Filter by customer ID
+    status       string  optional  Filter by order status
 
   Responses:
     200  Success — returns list of orders
@@ -320,6 +385,7 @@ GET /orders
 
 ```bash
 curl http://order-service:8000/orders
+curl "http://order-service:8000/orders?customer_id=customer-1&status=delivered"
 ```
 
 ---
@@ -329,13 +395,13 @@ curl http://order-service:8000/orders
 ```
 GET /orders/:id
 
-  Returns a single order with its line items.
+  Returns a single order.
 
   Path:
-    id  string (UUID)  The order's ID
+    id  integer  The order's ID
 
   Responses:
-    200  Success — returns order with items
+    200  Success — returns order
     404  Order not found
     500  Internal server error
 ```
@@ -343,7 +409,70 @@ GET /orders/:id
 **Example request:**
 
 ```bash
-curl http://order-service:8000/orders/<order-id>
+curl http://order-service:8000/orders/1
+```
+
+---
+
+### PUT /orders/:id/status
+
+```
+PUT /orders/:id/status
+
+  Updates the status of an order. Used internally by workers to advance
+  order state.
+
+  Body:
+    status     string  required  New status (confirmed, dispatched, ready, in_transit, delivered, failed)
+    driver_id  string  optional  Driver assigned to the order
+
+  Responses:
+    200  Status updated successfully
+    400  Invalid status value
+    404  Order not found
+    500  Internal server error
+```
+
+**Example request:**
+
+```bash
+curl -X PUT http://order-service:8000/orders/1/status \
+  -H "Content-Type: application/json" \
+  -d '{ "status": "dispatched", "driver_id": "driver-1" }'
+```
+
+---
+
+### GET /orders/:id/verify-completed
+
+```
+GET /orders/:id/verify-completed
+
+  Checks whether an order has been delivered. Used by the Rating & Review
+  Service to confirm delivery before accepting a rating.
+
+  Path:
+    id  integer  The order's ID
+
+  Responses:
+    200  Returns completion status
+    404  Order not found
+    500  Internal server error
+```
+
+**Example request:**
+
+```bash
+curl http://order-service:8000/orders/1/verify-completed
+```
+
+**Example response (200):**
+
+```json
+{
+  "order_id": 1,
+  "completed": true
+}
 ```
 
 ---
@@ -355,17 +484,29 @@ curl http://order-service:8000/orders/<order-id>
 ```
 GET /health
 
-  Returns the health status of the driver service and its dependencies.
+  Returns the health status of the driver service and its database connection.
 
   Responses:
-    200  Service and all dependencies healthy
-    503  One or more dependencies unreachable
+    200  Service and database healthy
+    503  Database unreachable
 ```
 
 **Example request:**
 
 ```bash
 curl http://driver-service:8000/health
+```
+
+**Example response (200):**
+
+```json
+{
+  "status": "healthy",
+  "service": "driver-service",
+  "checks": {
+    "database": { "status": "healthy" }
+  }
+}
 ```
 
 ---
@@ -378,7 +519,7 @@ GET /drivers
   Returns all drivers. Optionally filter by status.
 
   Query:
-    status  string  optional  Filter by driver status (available, busy, offline)
+    status  string  optional  Filter by driver status (Free, Busy)
 
   Responses:
     200  Success — returns list of drivers
@@ -389,7 +530,7 @@ GET /drivers
 
 ```bash
 curl http://driver-service:8000/drivers
-curl "http://driver-service:8000/drivers?status=available"
+curl "http://driver-service:8000/drivers?status=Free"
 ```
 
 **Example response (200):**
@@ -398,41 +539,13 @@ curl "http://driver-service:8000/drivers?status=available"
 {
   "drivers": [
     {
-      "id": "d0d0d0d0-0001-4000-8000-000000000001",
-      "name": "Marcus Webb",
-      "phone": "555-0101",
-      "vehicle": "Toyota Camry",
-      "status": "available",
-      "latitude": "42.375100",
-      "longitude": "-72.519400",
-      "created_at": "2026-04-07T10:00:00.000Z"
+      "id": 1,
+      "name": "Joe",
+      "status": "Free",
+      "location": "Boston"
     }
   ]
 }
-```
-
----
-
-### GET /drivers/:id
-
-```
-GET /drivers/:id
-
-  Returns a single driver by ID.
-
-  Path:
-    id  string (UUID)  The driver's ID
-
-  Responses:
-    200  Success — returns driver detail
-    404  Driver not found
-    500  Internal server error
-```
-
-**Example request:**
-
-```bash
-curl http://driver-service:8000/drivers/d0d0d0d0-0001-4000-8000-000000000001
 ```
 
 ---

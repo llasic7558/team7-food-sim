@@ -1,15 +1,15 @@
-FROM python:3.11-alpine
+FROM node:20-alpine
+
+RUN apk add --no-cache curl
 
 WORKDIR /app
 
-# system deps for psycopg2
-RUN apk add --no-cache gcc musl-dev libffi-dev postgresql-dev curl
+COPY package.json package-lock.json* ./
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN npm install --production
 
 COPY . .
 
 EXPOSE 8000
 
-CMD ["gunicorn", "-b", "0.0.0.0:8000", "app:app"]
+CMD ["npm", "start"]
