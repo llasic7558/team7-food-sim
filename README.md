@@ -225,7 +225,9 @@ curl http://restaurant-service:8000/restaurants/1
 ```
 GET /restaurants/:id/menu
 
-  Returns all menu items for a restaurant.
+  Returns all menu items for a restaurant. Results are cached in Redis
+  for 5 minutes; subsequent requests for the same restaurant skip the
+  database until the cache expires.
 
   Path:
     id  integer  The restaurant's ID
