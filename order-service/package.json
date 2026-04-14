@@ -1,0 +1,13 @@
+{
+  "id": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d",
+  "restaurant_id": "a0a0a0a0-0001-4000-8000-000000000001",
+  "customer_name": "Alice",
+  "status": "pending",
+  "total": "34.97",
+  "created_at": "2026-04-07T10:23:01.000Z",
+  "items": [
+    { "menu_item_id": "b0b0b0b0-0001-4000-8000-000000000001", "name": "Margherita Pizza", "price": "12.99", "quantity": 2 },
+    { "menu_item_id": "b0b0b0b0-0001-4000-8000-000000000003", "name": "Tiramisu", "price": "8.99", "quantity": 1 }
+  ]
+    
+}
