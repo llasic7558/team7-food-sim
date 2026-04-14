@@ -77,11 +77,12 @@ RUN set -eux; \
     k6 version
 
 # ── Neovim (latest release) ───────────────────────────────────────────────────
+# ── k6 ────────────────────────────────────────────────────────────────────────
 RUN set -eux; \
     DPKG_ARCH=$(dpkg --print-architecture); \
     case "$DPKG_ARCH" in \
-        amd64) NVIM_ARCH="x86_64" ;; \
-        arm64) NVIM_ARCH="arm64"  ;; \
+        amd64) K6_ARCH="amd64" ;; \
+        arm64) K6_ARCH="arm64" ;; \
         *) echo "Unsupported arch: $DPKG_ARCH" && exit 1 ;; \
     esac; \
     curl -fsSL "https://github.com/neovim/neovim/releases/latest/download/nvim-linux-${NVIM_ARCH}.tar.gz" \
@@ -127,6 +128,16 @@ rpeek() {
     redis-cli -u "$REDIS_URL" lrange "$1" 0 4
 }
 EOF
+    K6_VER=$(curl -fsSL "https://api.github.com/repos/grafana/k6/releases/latest" \
+             | jq -r .tag_name); \
+    curl -fsSL "https://github.com/grafana/k6/releases/download/${K6_VER}/k6-${K6_VER}-linux-${K6_ARCH}.tar.gz" \
+         | tar -xz -C /tmp \
+    && mv "/tmp/k6-${K6_VER}-linux-${K6_ARCH}/k6" /usr/local/bin/k6 \
+    && rm -rf "/tmp/k6-${K6_VER}-linux-${K6_ARCH}"
+
+# ── Shell conveniences ────────────────────────────────────────────────────────
+COPY .bashrc_extras /tmp/.bashrc_extras
+RUN cat /tmp/.bashrc_extras >> /root/.bashrc
 
 WORKDIR /workspace
 
