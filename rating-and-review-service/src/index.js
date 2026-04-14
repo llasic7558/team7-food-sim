@@ -50,6 +50,74 @@ app.get('/health', async (_req, res) => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// POST /ratings — submit a rating for a delivered order
+// ---------------------------------------------------------------------------
+
+app.post('/ratings', async (req, res) => {
+  const { order_id, restaurant_id, customer_id, score, review_text } = req.body || {};
+
+  const missing = [];
+  if (order_id == null) missing.push('order_id');
+  if (restaurant_id == null) missing.push('restaurant_id');
+  if (!customer_id) missing.push('customer_id');
+  if (score == null) missing.push('score');
+  if (missing.length) {
+    return res.status(400).json({ error: `Missing fields: ${missing.join(', ')}` });
+  }
+
+  if (!Number.isInteger(score) || score < 1 || score > 5) {
+    return res.status(400).json({ error: 'score must be an integer between 1 and 5' });
+  }
+
+  // Synchronous call to Order Service to verify the order was delivered
+  try {
+    const resp = await fetch(`${ORDER_SERVICE_URL}/orders/${order_id}/verify-completed`);
+    if (resp.status === 404) {
+      return res.status(404).json({ error: 'order not found', order_id });
+    }
+    if (!resp.ok) {
+      return res.status(503).json({ error: 'order service unavailable' });
+    }
+    const body = await resp.json();
+    if (!body.completed) {
+      return res.status(400).json({ error: 'order has not been delivered yet', order_id });
+    }
+  } catch (err) {
+    console.error('Order Service unreachable:', err.message);
+    return res.status(503).json({ error: 'order service unavailable' });
+  }
+
+  // Insert the rating
+  try {
+    const result = await db.query(
+      `INSERT INTO ratings (order_id, restaurant_id, customer_id, score, review_text)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING *`,
+      [order_id, restaurant_id, customer_id, score, review_text || null]
+    );
+
+    const rating = result.rows[0];
+    console.log(`Rating created: order=${order_id} restaurant=${restaurant_id} score=${score}`);
+
+    // Invalidate cached ratings and rankings for this restaurant
+    await redis.del(`ratings:restaurant:${restaurant_id}`).catch(() => {});
+    await redis.del('rankings').catch(() => {});
+
+    res.status(201).json(rating);
+  } catch (err) {
+    if (err.code === '23505') {
+      const existing = await db.query('SELECT * FROM ratings WHERE order_id = $1', [order_id]);
+      return res.status(409).json({
+        error: 'rating already exists for this order',
+        rating: existing.rows[0],
+      });
+    }
+    console.error('Error creating rating:', err.message);
+    res.status(500).json({ error: 'internal server error' });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`rating-and-review-service listening on port ${PORT}`);
 });
