@@ -81,15 +81,36 @@ app.get('/restaurants/:id', async (req, res) => {
   }
 });
 
-// Get menu for a restaurant
+// Get menu for a restaurant (cached in Redis)
 app.get('/restaurants/:id/menu', async (req, res) => {
   try {
-    const restaurant = await db.query('SELECT * FROM restaurants WHERE id = $1', [req.params.id]);
-    if (restaurant.rows.length === 0) {
-      return res.status(404).json({ error: 'restaurant not found', id: req.params.id });
+    const restaurantId = req.params.id;
+
+    // Check cache first
+    try {
+      const cached = await redis.get(`menu:${restaurantId}`);
+      if (cached) {
+        return res.json(JSON.parse(cached));
+      }
+    } catch (err) {
+      console.error('Redis cache read error:', err);
     }
-    const items = await db.query('SELECT * FROM menu_items WHERE restaurant_id = $1', [req.params.id]);
-    res.json({ restaurant_id: req.params.id, items: items.rows });
+
+    // Cache miss — hit database
+    const restaurant = await db.query('SELECT * FROM restaurants WHERE id = $1', [restaurantId]);
+    if (restaurant.rows.length === 0) {
+      return res.status(404).json({ error: 'restaurant not found', id: restaurantId });
+    }
+
+    const items = await db.query('SELECT * FROM menu_items WHERE restaurant_id = $1', [restaurantId]);
+    const body = { restaurant_id: restaurantId, items: items.rows };
+
+    // Write to cache with 5-minute Time To Live (fire-and-forget)
+    redis.set(`menu:${restaurantId}`, JSON.stringify(body), { EX: 300 }).catch((err) => {
+      console.error('Redis cache write error:', err);
+    });
+
+    res.json(body);
   } catch (err) {
     res.status(500).json({ error: 'internal server error' });
   }
