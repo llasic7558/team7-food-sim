@@ -260,29 +260,32 @@ services:
   #     redis:
   #       condition: service_healthy
   
-  # rating-and-review-service:
-  #   build: ./rating-and-review-service
-  #   container_name: rating-and-review-service
-  #   restart: unless-stopped
-  #   networks:
-  #     - team-net
-  #   environment:
-  #     DATABASE_URL: postgres://app:secret@rating-db:5432/ratings
-  #     REDIS_URL: redis://redis:6379
-  #     SERVICE_NAME: rating-and-review-service
-  #     PORT: 8000
-  #   healthcheck:
-  #     test: ['CMD', 'curl', '-f', 'http://localhost:8000/health']
-  #     interval: 10s
-  #     timeout: 5s
-  #     retries: 3
-  #     start_period: 15s
-  #   depends_on:
-  #     rating-db:
-  #       condition: service_healthy
-  #     order-service:
-  #       condition: service_healthy
-  #     redis:
-  #       condition: service_healthy
+  rating-and-review-service:
+    build: ./rating-and-review-service
+    container_name: rating-and-review-service
+    ports:
+      - "8004:8000"
+    restart: unless-stopped
+    networks:
+      - team-net
+    environment:
+      DATABASE_URL: postgres://app:secret@rating-db:5432/ratings
+      REDIS_URL: redis://redis:6379
+      ORDER_SERVICE_URL: http://order-service:8000
+      SERVICE_NAME: rating-and-review-service
+      PORT: 8000
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:8000/health']
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    depends_on:
+      rating-db:
+        condition: service_healthy
+      order-service:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
   

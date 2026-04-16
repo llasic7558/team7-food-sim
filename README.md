@@ -38,9 +38,10 @@ docker compose exec holmes bash
 ### Base URLs (from Holmes)
 
 ```
-restaurant-service    http://restaurant-service:8000
-order-service         http://order-service:8000
-driver-service        http://driver-service:8000
+restaurant-service           http://restaurant-service:8000
+order-service                http://order-service:8000
+driver-service               http://driver-service:8000
+rating-and-review-service    http://rating-and-review-service:8000
 ```
 
 > From inside Holmes, services are reachable by name:
@@ -225,7 +226,9 @@ curl http://restaurant-service:8000/restaurants/1
 ```
 GET /restaurants/:id/menu
 
-  Returns all menu items for a restaurant.
+  Returns all menu items for a restaurant. Results are cached in Redis
+  for 5 minutes; subsequent requests for the same restaurant skip the
+  database until the cache expires.
 
   Path:
     id  integer  The restaurant's ID
@@ -543,6 +546,219 @@ curl "http://driver-service:8000/drivers?status=Free"
       "name": "Joe",
       "status": "Free",
       "location": "Boston"
+    }
+  ]
+}
+```
+
+---
+
+## Rating & Review Service
+
+### GET /health
+
+```
+GET /health
+
+  Returns the health status of the rating and review service and its
+  dependencies (PostgreSQL and Redis).
+
+  Responses:
+    200  Service and all dependencies healthy
+    503  One or more dependencies unreachable
+```
+
+**Example request:**
+
+```bash
+curl http://rating-and-review-service:8000/health
+```
+
+**Example response (200):**
+
+```json
+{
+  "status": "healthy",
+  "service": "rating-and-review-service",
+  "timestamp": "2026-04-14T10:23:01.000Z",
+  "uptime_seconds": 120,
+  "checks": {
+    "database": { "status": "healthy", "latency_ms": 2 },
+    "redis": { "status": "healthy", "latency_ms": 1 }
+  }
+}
+```
+
+---
+
+### POST /ratings
+
+```
+POST /ratings
+
+  Submits a rating for a delivered order. Validates that the order exists and
+  has been delivered by making a synchronous HTTP call to the Order Service
+  (GET /orders/:id/verify-completed). Only one rating per order is allowed.
+
+  Body:
+    order_id       integer  required  ID of the delivered order
+    restaurant_id  integer  required  ID of the restaurant
+    customer_id    string   required  ID of the customer
+    score          integer  required  Rating score, 1–5
+    review_text    string   optional  Written review
+
+  Responses:
+    201  Rating created successfully
+    400  Missing or invalid fields, or order not yet delivered
+    404  Order not found
+    409  Rating already exists for this order
+    503  Order service unavailable
+    500  Internal server error
+```
+
+**Example request:**
+
+```bash
+curl -X POST http://rating-and-review-service:8000/ratings \
+  -H "Content-Type: application/json" \
+  -d '{
+    "order_id": 1,
+    "restaurant_id": 1,
+    "customer_id": "customer-1",
+    "score": 5,
+    "review_text": "Amazing pizza, delivered hot!"
+  }'
+```
+
+**Example response (201):**
+
+```json
+{
+  "id": 1,
+  "order_id": 1,
+  "restaurant_id": 1,
+  "customer_id": "customer-1",
+  "score": 5,
+  "review_text": "Amazing pizza, delivered hot!",
+  "created_at": "2026-04-14T10:23:01.000Z"
+}
+```
+
+**Example response (400 — order not delivered):**
+
+```json
+{
+  "error": "order has not been delivered yet",
+  "order_id": 1
+}
+```
+
+**Example response (409 — duplicate):**
+
+```json
+{
+  "error": "rating already exists for this order",
+  "rating": {
+    "id": 1,
+    "order_id": 1,
+    "restaurant_id": 1,
+    "customer_id": "customer-1",
+    "score": 5,
+    "review_text": "Amazing pizza, delivered hot!",
+    "created_at": "2026-04-14T10:23:01.000Z"
+  }
+}
+```
+
+---
+
+### GET /ratings/restaurant/:id
+
+```
+GET /ratings/restaurant/:id
+
+  Returns all ratings for a restaurant with the average score and total count.
+  Served from Redis cache when available; cache expires after 60 seconds.
+
+  Path:
+    id  integer  The restaurant's ID
+
+  Responses:
+    200  Success — returns ratings with average
+    500  Internal server error
+```
+
+**Example request:**
+
+```bash
+curl http://rating-and-review-service:8000/ratings/restaurant/1
+```
+
+**Example response (200):**
+
+```json
+{
+  "restaurant_id": 1,
+  "average_score": 4.5,
+  "total_ratings": 2,
+  "ratings": [
+    {
+      "id": 2,
+      "order_id": 2,
+      "restaurant_id": 1,
+      "customer_id": "customer-2",
+      "score": 4,
+      "review_text": "Great pasta, slightly late delivery",
+      "created_at": "2026-04-14T10:25:00.000Z"
+    },
+    {
+      "id": 1,
+      "order_id": 1,
+      "restaurant_id": 1,
+      "customer_id": "customer-1",
+      "score": 5,
+      "review_text": "Amazing pizza, delivered hot!",
+      "created_at": "2026-04-14T10:23:01.000Z"
+    }
+  ]
+}
+```
+
+---
+
+### GET /rankings
+
+```
+GET /rankings
+
+  Returns all restaurants ranked by average rating score (highest first).
+  Served from Redis cache when available; cache expires after 60 seconds.
+
+  Responses:
+    200  Success — returns ranked list of restaurants
+    500  Internal server error
+```
+
+**Example request:**
+
+```bash
+curl http://rating-and-review-service:8000/rankings
+```
+
+**Example response (200):**
+
+```json
+{
+  "rankings": [
+    {
+      "restaurant_id": 2,
+      "total_ratings": 1,
+      "average_score": "5.00"
+    },
+    {
+      "restaurant_id": 1,
+      "total_ratings": 2,
+      "average_score": "4.50"
     }
   ]
 }
