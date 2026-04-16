@@ -222,7 +222,21 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    
+        
+  order-dispatch-worker:
+    build: ./order-dispatch-worker
+    container_name: order-dispatch-worker
+    restart: unless-stopped
+    networks:
+      - team-net
+    environment:
+      REDIS_URL: redis://redis:6379
+      DRIVER_SERVICE_URL: http://driver-service:8000
+    depends_on:
+      redis:
+        condition: service_healthy
+      driver-service:
+        condition: service_healthy
   # delivery-tracker-service:
   #   build: ./delivery-tracker-service
   #   container_name: delivery-tracker-service
