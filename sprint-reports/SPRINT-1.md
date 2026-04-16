@@ -28,6 +28,7 @@ A k6 baseline load test hits the restaurant, order and driver read endpoints wit
 | Emily Joyce | Full driver-service implementation (schema, seed, Dockerfile, Express app, compose.yml) | `81cb1ca`, `d7af189`, `1ad2077`, `b779e38`, `130be86` |
 | Kanika (kanikak1904) | Order-service Flask implementation | `9eecbd9` |
 | Rishi Patel | Order-service Redis health check attempt | `ff0865c`, `81c9de2` |
+| Raymond Huang | Sprint plan documentation | `3ee6879` | contributed to order-service, however accidentaly pulled to upstream branch, code was good however, verified by luka |`e2f0e05`|
 | Raymond Huang | Sprint plan documentation | `3ee6879` |ontributed to order-service, however accidentaly pulled to upstream branch, code was good however, verified by luka |`e2f0e05`|
 | Shao Qin Tan | Compose.yml wiring, k6 baseline test, README.md | `0658044` |
 | Luka (llasic7558) | Compose.yml fixes, restaurant-service DB schema/seed/connection, k6 test updates, README, skeleton dirs for all services, refactoring other code to properly work | `faa224d`, `26b4ee2`, `31f40bd`, `fdcb373`, `57cee59` |

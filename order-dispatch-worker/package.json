@@ -6,5 +6,6 @@
     "start": "node src/index.js"
   },
   "dependencies": {
+    "ioredis": "^5.10.1"
   }
 }
