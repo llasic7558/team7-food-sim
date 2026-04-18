@@ -18,6 +18,34 @@ async function run() {
       const order = JSON.parse(raw);
       console.log(`[DISPATCH] Consumed order ${order.order_id}`);
 
+      //call driver
+      const res=await fetch(`${DRIVER_SERVICE_URL}/assign`,{
+        method:"POST",
+        headers:{
+          "Content-Type":"application/json"
+        },
+        body:JSON.stringify({
+          order_id:order.order_id
+        })
+      });
+
+      if (!res.ok){
+        throw new Error(`Driver service error: ${res.status}`);
+      }
+      
+      const driver = await res.json();
+      console.log(
+        `[DISPATCH] Assigned driver ${driver.id} to order ${order.order_id}`
+      );
+      //publish event
+      await redis.publish(
+        "event:order_dispatched",
+        JSON.stringify({
+          order_id: order.order_id,
+          driver_id: driver.id
+        })
+      );
+      
     } catch (err) {
       console.error("[ERROR]", err.message);
       await new Promise((r) => setTimeout(r, 1000));
