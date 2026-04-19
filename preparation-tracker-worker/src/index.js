@@ -7,28 +7,41 @@ const app = express();
 const PORT = process.env.PORT || 8100;
 const startTime = Date.now();
 
-// Redis clients (separate for pub/sub)
+// Redis clients
 const subscriber = createClient({ url: process.env.REDIS_URL });
 const publisher = createClient({ url: process.env.REDIS_URL });
+const client = createClient({ url: process.env.REDIS_URL });
 
 let lastJobAt = null;
-let jobsProcessed = 0;
 
 async function initRedis() {
   await subscriber.connect();
   await publisher.connect();
+  await client.connect();
 
   console.log('Preparation Tracker Worker connected to Redis');
 
-  // Subscribe to "order dispatched" events
+  // Listen for pub/sub events
   await subscriber.subscribe('order_dispatched', async (message) => {
+    // ALSO push into a queue for depth tracking
+    await client.lPush('prep_queue', message);
+  });
+
+  // Worker loop (process queue)
+  processQueue();
+}
+
+async function processQueue() {
+  while (true) {
     try {
+      // BRPOP blocks until job arrives
+      const result = await client.brPop('prep_queue', 0);
+      const message = result.element;
+
       const order = JSON.parse(message);
-      console.log('Received order_dispatched:', order);
+      console.log('Processing order:', order);
 
-      lastJobAt = new Date().toISOString();
-
-      // Simulate preparation time for order (e.g., 2–5 seconds)
+      // Simulate prep time
       const prepTime = Math.floor(Math.random() * 3000) + 2000;
       await new Promise((res) => setTimeout(res, prepTime));
 
@@ -39,31 +52,35 @@ async function initRedis() {
         timestamp: new Date().toISOString(),
       };
 
-      // Publish "order ready"
       await publisher.publish('order_ready', JSON.stringify(readyEvent));
 
-      jobsProcessed++;
-      console.log('Published order_ready:', readyEvent);
+      lastJobAt = new Date().toISOString();
 
     } catch (err) {
-      console.error('Error processing order_dispatched:', err);
+      console.error('Worker error:', err);
+
+      //move bad job to DLQ
+      await client.lPush('prep_dlq', JSON.stringify({ error: err.message }));
     }
-  });
+  }
 }
 
 initRedis();
 
 
-// Health endpoint
-app.get('/health', (_req, res) => {
+// health end point w/ required
+// current queue depth, the dead letter queue depth,
+//  and the timestamp of the last successfully processed job
+app.get('/health', async (_req, res) => {
+  const queueDepth = await client.lLen('prep_queue');
+  const dlqDepth = await client.lLen('prep_dlq');
+
   res.json({
-    // TODO: includes the current queue depth, 
-    // the dead letter queue depth, 
-    // and the timestamp of the last successfully processed job
     status: 'healthy',
     service: 'preparation-tracker-worker',
     uptime_seconds: Math.floor((Date.now() - startTime) / 1000),
-    jobs_processed: jobsProcessed,
+    queue_depth: queueDepth,
+    dead_letter_queue_depth: dlqDepth,
     last_job_at: lastJobAt,
   });
 });
