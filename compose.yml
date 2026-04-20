@@ -237,28 +237,56 @@ services:
         condition: service_healthy
       driver-service:
         condition: service_healthy
-  # delivery-tracker-service:
-  #   build: ./delivery-tracker-service
-  #   container_name: delivery-tracker-service
-  #   restart: unless-stopped
-  #   networks:
-  #     - team-net
-  #   environment:
-  #     DATABASE_URL: postgres://app:secret@driver-db:5432/drivers
-  #     REDIS_URL: redis://redis:6379
-  #     SERVICE_NAME: delivery-tracker-service
-  #     PORT: 8000
-  #   healthcheck:
-  #     test: ['CMD', 'curl', '-f', 'http://localhost:8000/health']
-  #     interval: 10s
-  #     timeout: 5s
-  #     retries: 3
-  #     start_period: 15s
-  #   depends_on:
-  #     driver-db:
-  #       condition: service_healthy
-  #     redis:
-  #       condition: service_healthy
+
+  preparation-tracker-worker:
+    build: ./preparation-tracker-worker
+    container_name: preparation-tracker-worker
+    ports:
+      - "8100:8100"
+    restart: unless-stopped
+    networks:
+      - team-net
+    environment:
+      REDIS_URL: redis://redis:6379
+      SERVICE_NAME: preparation-tracker-worker
+      PORT: 8100
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:8100/health']
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  delivery-tracker-service:
+    build: ./delivery-tracker-service
+    container_name: delivery-tracker-service
+    ports:
+      - "8005:8000"
+    restart: unless-stopped
+    networks:
+      - team-net
+    environment:
+      REDIS_URL: redis://redis:6379
+      DRIVER_SERVICE_URL: http://driver-service:8000
+      ORDER_SERVICE_URL: http://order-service:8000
+      SERVICE_NAME: delivery-tracker-service
+      PORT: 8000
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:8000/health']
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    depends_on:
+      redis:
+        condition: service_healthy
+      driver-service:
+        condition: service_healthy
+      order-service:
+        condition: service_healthy
   
   rating-and-review-service:
     build: ./rating-and-review-service
