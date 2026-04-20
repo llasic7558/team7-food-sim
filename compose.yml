@@ -226,12 +226,22 @@ services:
   order-dispatch-worker:
     build: ./order-dispatch-worker
     container_name: order-dispatch-worker
+    ports:
+      - "8110:8110"
     restart: unless-stopped
     networks:
       - team-net
     environment:
       REDIS_URL: redis://redis:6379
       DRIVER_SERVICE_URL: http://driver-service:8000
+      SERVICE_NAME: order-dispatch-worker
+      PORT: 8110
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:8110/health']
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     depends_on:
       redis:
         condition: service_healthy
