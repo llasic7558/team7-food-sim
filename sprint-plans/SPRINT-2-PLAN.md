@@ -60,7 +60,6 @@ Surge Pricing Worker	worker	Consumes order volume events from a Redis queue. Whe
 |  Dev   | `restaurant-service/` |
 |  Emily   | `drivers-service/ and order-dispatch-worker/` |
 |  Kanika   | `[path]` |
-|  Rishi   | `[path]` |
 |  Shao   | `rating-and-review-service` |
 |  Rishi   | `order-dispatch-worker/` |
 
