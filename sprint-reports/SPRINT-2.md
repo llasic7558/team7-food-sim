@@ -21,7 +21,7 @@ We added a cache to the restaurant service to more easily get menus from the db.
 | Beatrice Calvelo| completed Preparation Tracker Worker | 436ea03 a69b872 |
 | Shao| completed rating and review service | 7766eb6 c58a6df 940338a f2ad293 e65d6aa b852793 |
 | Dev | Completed redis caching for restaurant menu items| 29e9a53 |
-| Rishi | DLQ handling for GET/health to provide meaningful info | bf96e39 |
+| Rishi | DLQ handling in order-dispatch-worker for GET/health to provide meaningful info | bf96e39 |
 
 ---
 
