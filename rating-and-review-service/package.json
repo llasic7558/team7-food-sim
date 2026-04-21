@@ -1,7 +1,7 @@
 {
-  "name": "order-service",
+  "name": "rating-and-review-service",
   "version": "1.0.0",
-  "description": "Order service for food delivery system",
+  "description": "Rating and review service for food delivery system",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js"

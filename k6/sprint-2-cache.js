@@ -1,8 +1,9 @@
-// Sprint 1 — Baseline load test (no caching)
-//
-// Run from inside the holmes container:
+// Sprint 2 — Cache comparison load test
+// same stages and shapes as sprint 1, however checking how the redis chaching helps,
+//doing a run with having chache enabled and not to better see the differnce
+// Run from inside holmes:
 //   docker compose exec holmes bash
-//   k6 run /workspace/k6/sprint-1.js
+//   k6 run /workspace/k6/sprint-2-cache.js
 
 import http from "k6/http";
 import { check, sleep } from "k6";
@@ -12,13 +13,20 @@ const errorRate = new Rate("errors");
 
 export const options = {
   stages: [
-    { duration: "30s", target: 20 }, // ramp up to 20 VUs
-    { duration: "30s", target: 20 }, // sustain
-    { duration: "10s", target: 0 },  // ramp down
+    { duration: "30s", target: 20 },
+    { duration: "30s", target: 20 },
+    { duration: "10s", target: 0 },
   ],
   thresholds: {
+    // Aggregate thresholds
     http_req_duration: ["p(50)<300", "p(95)<500", "p(99)<1000"],
     errors: ["rate<0.01"],
+    "http_req_duration{endpoint:list_restaurants}": ["p(95)<5000"],
+    "http_req_duration{endpoint:menu}":             ["p(95)<5000"],
+    "http_req_duration{endpoint:list_orders}":      ["p(95)<5000"],
+    "http_req_duration{endpoint:create_order}":     ["p(95)<5000"],
+    "http_req_duration{endpoint:get_order}":        ["p(95)<5000"],
+    "http_req_duration{endpoint:list_drivers}":     ["p(95)<5000"],
   },
 };
 
@@ -27,33 +35,35 @@ const ORDER_URL = "http://order-service:8000";
 const DRIVER_URL = "http://driver-service:8000";
 
 let counter = 0;
+// here so idempotency keys don't collide across reruns
+const RUN_ID = Date.now();
 
 export default function () {
-
   // ── Restaurant Service ──
-
-  // list all restaurants
-  const restaurants = http.get(`${RESTAURANT_URL}/restaurants`);
+  const restaurants = http.get(`${RESTAURANT_URL}/restaurants`, {
+    tags: { endpoint: "list_restaurants" },
+  });
   check(restaurants, {
     "GET /restaurants status 200": (r) => r.status === 200,
   }) || errorRate.add(1);
 
-  // get menu for restaurant 1
-  const menu = http.get(`${RESTAURANT_URL}/restaurants/1/menu`);
+  //  cached endpoint this is where the Redis cache effect shows up.
+  const menu = http.get(`${RESTAURANT_URL}/restaurants/1/menu`, {
+    tags: { endpoint: "menu" },
+  });
   check(menu, {
     "GET /restaurants/1/menu status 200": (r) => r.status === 200,
   }) || errorRate.add(1);
 
   // ── Order Service ──
-
-  // list all orders
-  const orders = http.get(`${ORDER_URL}/orders`);
+  const orders = http.get(`${ORDER_URL}/orders`, {
+    tags: { endpoint: "list_orders" },
+  });
   check(orders, {
     "GET /orders status 200": (r) => r.status === 200,
   }) || errorRate.add(1);
 
-  // create an order (idempotency key unique per iteration + VU)
-  const idempotencyKey = `k6-${__VU}-${__ITER}-${counter++}`;
+  const idempotencyKey = `k6-cache-${RUN_ID}-${__VU}-${__ITER}-${counter++}`;
   const createRes = http.post(
     `${ORDER_URL}/orders`,
     JSON.stringify({
@@ -66,25 +76,27 @@ export default function () {
         "Content-Type": "application/json",
         "X-Idempotency-Key": idempotencyKey,
       },
+      tags: { endpoint: "create_order" },
     }
   );
   check(createRes, {
     "POST /orders status 201": (r) => r.status === 201,
   }) || errorRate.add(1);
 
-  // get the created order
   if (createRes.status === 201) {
     const orderId = JSON.parse(createRes.body).id;
-    const getOrder = http.get(`${ORDER_URL}/orders/${orderId}`);
+    const getOrder = http.get(`${ORDER_URL}/orders/${orderId}`, {
+      tags: { endpoint: "get_order" },
+    });
     check(getOrder, {
       "GET /orders/:id status 200": (r) => r.status === 200,
     }) || errorRate.add(1);
   }
 
   // ── Driver Service ──
-
-  // list all drivers
-  const drivers = http.get(`${DRIVER_URL}/drivers`);
+  const drivers = http.get(`${DRIVER_URL}/drivers`, {
+    tags: { endpoint: "list_drivers" },
+  });
   check(drivers, {
     "GET /drivers status 200": (r) => r.status === 200,
   }) || errorRate.add(1);
