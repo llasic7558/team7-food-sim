@@ -16,6 +16,32 @@ const RESTAURANT_SERVICE_URL = process.env.RESTAURANT_SERVICE_URL || 'http://res
 const ORDER_DISPATCH_QUEUE = 'queue:order_dispatch';
 const NOTIFICATION_QUEUE = 'queue:notifications';
 
+const IDEMPOTENCY_TTL_SEC = 86400;
+const IDEMPOTENCY_PENDING = '<pending>';
+const IDEMPOTENCY_POLL_INTERVAL_MS = 50;
+const IDEMPOTENCY_POLL_TIMEOUT_MS = 3000;
+
+function idempotencyRedisKey(key) {
+  return `idem:${key}`;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+// idempotency checking, we will poll the idempotency slot until the one that is actaully running
+// returns  the final JSON response (or deletes the key on error). Returns the parsed
+// response, or null if the placeholder never resolved within the timeout 
+async function awaitIdempotencyResolution(redisKey) {
+  const deadline = Date.now() + IDEMPOTENCY_POLL_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    const value = await redis.get(redisKey);
+    if (value === null) return null;
+    if (value !== IDEMPOTENCY_PENDING) return JSON.parse(value);
+    await sleep(IDEMPOTENCY_POLL_INTERVAL_MS);
+  }
+  return null;
+}
+
 // --- helpers ---
 
 function menuRowKey(row) {
@@ -84,7 +110,6 @@ function pushNotification(event, order) {
 function formatOrder(row) {
   return {
     id: row.id,
-    idempotency_key: row.idempotency_key,
     customer_id: row.customer_id,
     restaurant_id: row.restaurant_id,
     items: row.items,
@@ -155,69 +180,77 @@ app.get('/orders', async (req, res) => {
   }
 });
 
-// Create order
 app.post('/orders', async (req, res) => {
   const idempotencyKey = req.headers['x-idempotency-key'];
   if (!idempotencyKey) {
     return res.status(400).json({ error: 'X-Idempotency-Key header is required' });
   }
-
-  // Check for existing order with this idempotency key
+  //idemptoncy check for orders
+  const redisKey = idempotencyRedisKey(idempotencyKey);
+  //seeing if the order has been set or not
+  let reserved;
   try {
-    const existing = await db.query('SELECT * FROM orders WHERE idempotency_key = $1', [idempotencyKey]);
-    if (existing.rows.length > 0) {
-      console.log(`Duplicate order request for key ${idempotencyKey} — returning original`);
-      return res.json(formatOrder(existing.rows[0]));
-    }
+    reserved = await redis.set(redisKey, IDEMPOTENCY_PENDING, {
+      NX: true,
+      EX: IDEMPOTENCY_TTL_SEC,
+    });
   } catch (err) {
-    console.error('Error checking idempotency:', err.message);
+    console.error('Redis SETNX failed:', err.message);
     return res.status(500).json({ error: 'internal server error' });
   }
-
-  const { customer_id, restaurant_id, items } = req.body || {};
-
-  const missing = [];
-  if (!customer_id) missing.push('customer_id');
-  if (!restaurant_id) missing.push('restaurant_id');
-  if (!items) missing.push('items');
-  if (missing.length) {
-    return res.status(400).json({ error: `Missing fields: ${missing.join(', ')}` });
-  }
-
-  if (!Array.isArray(items) || items.length === 0) {
-    return res.status(400).json({ error: "'items' must be a non-empty list" });
-  }
-
-  const validation = await validateItemsWithRestaurant(restaurant_id, items);
-  if (!validation.ok) {
-    return res.status(422).json({ error: validation.error });
-  }
-
-  let order;
-  try {
-    const result = await db.query(
-      `INSERT INTO orders (idempotency_key, customer_id, restaurant_id, items, total_price, status)
-       VALUES ($1, $2, $3, $4, $5, 'pending')
-       RETURNING *`,
-      [idempotencyKey, customer_id, restaurant_id, JSON.stringify(items), validation.total]
-    );
-    order = result.rows[0];
-  } catch (err) {
-    // Race condition: another request with the same idempotency key inserted first
-    if (err.code === '23505') {
-      const existing = await db.query('SELECT * FROM orders WHERE idempotency_key = $1', [idempotencyKey]);
-      return res.json(formatOrder(existing.rows[0]));
+  //if the order has already has a key, send back the already made order id 
+  if (!reserved) {
+    const resolved = await awaitIdempotencyResolution(redisKey);
+    if (!resolved) {
+      return res.status(503).json({ error: 'idempotent request in flight, please retry' });
     }
+    console.log(`Duplicate order request for key ${idempotencyKey} — returning cached id=${resolved.id}`);
+    return res.status(201).json(resolved);
+  }
+  //if the order passes the dup check continue with the order 
+  try {
+    const { customer_id, restaurant_id, items } = req.body || {};
+
+    const missing = [];
+    if (!customer_id) missing.push('customer_id');
+    if (!restaurant_id) missing.push('restaurant_id');
+    if (!items) missing.push('items');
+    if (missing.length) {
+      await redis.del(redisKey);
+      return res.status(400).json({ error: `Missing fields: ${missing.join(', ')}` });
+    }
+
+    if (!Array.isArray(items) || items.length === 0) {
+      await redis.del(redisKey);
+      return res.status(400).json({ error: "'items' must be a non-empty list" });
+    }
+
+    const validation = await validateItemsWithRestaurant(restaurant_id, items);
+    if (!validation.ok) {
+      await redis.del(redisKey);
+      return res.status(422).json({ error: validation.error });
+    }
+
+    const result = await db.query(
+      `INSERT INTO orders (customer_id, restaurant_id, items, total_price, status)
+       VALUES ($1, $2, $3, $4, 'pending')
+       RETURNING *`,
+      [customer_id, restaurant_id, JSON.stringify(items), validation.total]
+    );
+    const order = result.rows[0];
+    const response = formatOrder(order);
+
+    console.log(`Order ${order.id} created (customer=${customer_id}, restaurant=${restaurant_id}, total=$${validation.total})`);
+    await redis.rPush(ORDER_DISPATCH_QUEUE, JSON.stringify({ order_id: order.id, restaurant_id }));
+
+    await redis.set(redisKey, JSON.stringify(response), { EX: IDEMPOTENCY_TTL_SEC });
+
+    return res.status(201).json(response);
+  } catch (err) {
+    await redis.del(redisKey).catch(() => {});
     console.error('Error creating order:', err.message);
     return res.status(500).json({ error: 'internal server error' });
   }
-
-  console.log(`Order ${order.id} created (customer=${customer_id}, restaurant=${restaurant_id}, total=$${validation.total})`);
-
-  await redis.rPush(ORDER_DISPATCH_QUEUE, JSON.stringify({ order_id: order.id, restaurant_id }));
-  pushNotification('order_confirmed', order);
-
-  res.status(201).json(formatOrder(order));
 });
 
 // Get single order
