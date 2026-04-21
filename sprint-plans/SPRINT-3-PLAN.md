@@ -16,7 +16,7 @@
 
 | Team Member | Files / Directories Owned This Sprint |
 | ----------- | ------------------------------------- |
-| [Name]      | `[path]` |
+| [Rishi]      | `[notificaton-worker]` |
 | [Name]      | `[path]` |
 | [Name]      | `[path]` |
 
