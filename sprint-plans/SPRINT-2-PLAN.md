@@ -61,7 +61,7 @@ Surge Pricing Worker	worker	Consumes order volume events from a Redis queue. Whe
 |  Emily   | `drivers-service/ and order-dispatch-worker/` |
 |  Kanika   | `[path]` |
 |  Rishi   | `[path]` |
-|  Shao   | `[path]` |
+|  Shao   | `rating-and-review-service` |
 
 
 
@@ -101,6 +101,9 @@ Surge Pricing Worker	worker	Consumes order volume events from a Redis queue. Whe
 
 - [ ] Order Dispatch Worker and making sure it works with driver service
 
+### [Shao]
+
+- [ ] Implement rating and review service
 ---
 
 ## Risks
