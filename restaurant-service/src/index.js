@@ -107,7 +107,16 @@ app.get('/restaurants/:id/menu', async (req, res) => {
     }
 
     const items = await db.query('SELECT * FROM menu_items WHERE restaurant_id = $1', [restaurantId]);
-    const body = { restaurant_id: restaurantId, items: items.rows };
+
+    let surgeMultiplier = 1.0;
+    try {
+      const surgeVal = await redis.get(`surge:restaurant:${restaurantId}`);
+      if (surgeVal) surgeMultiplier = parseFloat(surgeVal);
+    } catch (err) {
+      console.error('Redis surge read error:', err.message);
+    }
+
+    const body = { restaurant_id: restaurantId, items: items.rows, surge_multiplier: surgeMultiplier };
 
     if (CACHE_ENABLED) {
       redis.set(`menu:${restaurantId}`, JSON.stringify(body), { EX: 300 }).catch((err) => {
