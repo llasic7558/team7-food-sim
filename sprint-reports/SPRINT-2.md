@@ -19,6 +19,7 @@ We added a cache to the restaurant service to more easily get menus from the db.
 | [Luka]      |worked on Delivery Tracker service, fixing idempotency within order service,  |0fdea34 eafb974 ecff527 eafb974 2c61adc 1f6d53b |
 | [Emily Joyce]      |worked on order dispatch worker and driver endpoints|436ea03 a69b872|
 | Beatrice Calvelo| completed Preparation Tracker Worker | 436ea03 a69b872 |
+| Dev | Completed redis caching for restaurant menu items| 29e9a53 |
 
 ---
 
