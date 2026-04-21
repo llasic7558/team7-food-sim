@@ -98,6 +98,9 @@ Surge Pricing Worker	worker	Consumes order volume events from a Redis queue. Whe
 ### [Emily]
 
 - [ ] Starting Order Dispatch Worker and making sure it works with driver service
+### [Emily]
+
+- [ ] Order Dispatch Worker and making sure it works with driver service
 
 ---
 

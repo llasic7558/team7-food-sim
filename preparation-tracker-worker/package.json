@@ -2,9 +2,12 @@
   "name": "preparation-tracker-worker",
   "version": "1.0.0",
   "main": "src/index.js",
+  "type": "module",
   "scripts": {
     "start": "node src/index.js"
   },
   "dependencies": {
+    "express": "^4.19.2",
+    "redis": "^4.7.0"
   }
 }
