@@ -54,7 +54,7 @@ Surge Pricing Worker	worker	Consumes order volume events from a Redis queue. Whe
 
 | Team Member | Files / Directories Owned This Sprint |
 | ----------- | ------------------------------------- |
-| Luka      | `[path]` |
+| Luka      | `delivery-tracker-service/` `k6/` |
 | Raymond      | `[path]` |
 |  Beatrice   | `preparation-tracker-worker/` |
 |  Dev   | `restaurant-service/` |
@@ -84,6 +84,7 @@ Surge Pricing Worker	worker	Consumes order volume events from a Redis queue. Whe
 - Get it to listen on redis queue for order ready events 
 - Stim driver transit and locations 
 - endpoints for clients to poll
+- Complete k6 endpoints
 
 
 ### [Rishi]
