@@ -61,7 +61,7 @@ async function processQueue() {
       const readyEvent = {
         order_id: event.order_id,
         driver_id: event.driver_id,
-        restaurantId: event.restaurantId,
+        restaurantId: event.restaurantId ?? event.restaurant_id,
         status: 'ready',
         timestamp: new Date().toISOString(),
       };
@@ -102,6 +102,7 @@ app.get('/health', async (_req, res) => {
     service: SERVICE_NAME,
     uptime_seconds: Math.floor((Date.now() - startTime) / 1000),
     queue_depth: queueDepth,
+    dlq_depth: dlqDepth,
     dead_letter_queue_depth: dlqDepth,
     last_job_at: lastJobAt,
     checks,
