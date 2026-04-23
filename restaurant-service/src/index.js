@@ -92,6 +92,7 @@ app.get('/restaurants/:id/menu', async (req, res) => {
     if (CACHE_ENABLED) {
       try {
         const cached = await redis.get(`menu:${restaurantId}`);
+        console.log("Cache hit for " + restaurantId)
         if (cached) {
           return res.json(JSON.parse(cached));
         }
@@ -101,6 +102,7 @@ app.get('/restaurants/:id/menu', async (req, res) => {
     }
 
     // Cache miss or cache disabled — hit database
+    console.log("Cache miss for " + restaurantId)
     const restaurant = await db.query('SELECT * FROM restaurants WHERE id = $1', [restaurantId]);
     if (restaurant.rows.length === 0) {
       return res.status(404).json({ error: 'restaurant not found', id: restaurantId });
