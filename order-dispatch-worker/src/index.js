@@ -4,44 +4,57 @@ const Redis = require("ioredis");
 const QUEUE_KEY = "queue:order_dispatch";
 const DLQ_KEY = "queue:order_dispatch:dlq";
 const DISPATCHED_CHANNEL = "order_dispatched";
+
 const REDIS_URL = process.env.REDIS_URL || "redis://redis:6379";
-const DRIVER_SERVICE_URL = process.env.DRIVER_SERVICE_URL || "http://driver-service:8000";
+const DRIVER_SERVICE_URL =
+  process.env.DRIVER_SERVICE_URL || "http://driver-service:8000";
 const RESTAURANT_SERVICE_URL =
   process.env.RESTAURANT_SERVICE_URL || "http://restaurant-service:8000";
+
 const PORT = process.env.PORT || 8110;
 const SERVICE_NAME = process.env.SERVICE_NAME || "order-dispatch-worker";
 const startTime = Date.now();
 
-// Separate connections: worker blocks on BLPOP; queue client serves /health and DLQ writes.
+// Redis connections
 const worker = new Redis(REDIS_URL);
 const queue = new Redis(REDIS_URL);
 
 let lastJobAt = null;
 
+// DLQ helper (standardized)
 async function moveToDlq(record) {
   await queue.rpush(DLQ_KEY, JSON.stringify(record));
   console.log(
-    `[DISPATCH] moved job to DLQ (${record.reason || record.error || "unknown"}): order_id=${record.order_id ?? "n/a"}`
+    `[DLQ] reason=${record.reason} retryable=${record.retryable ?? "unknown"}`
   );
 }
 
+// Restaurant validation
 async function restaurantExists(restaurantId) {
-  const url = `${RESTAURANT_SERVICE_URL}/restaurants/${encodeURIComponent(restaurantId)}`;
+  const url = `${RESTAURANT_SERVICE_URL}/restaurants/${encodeURIComponent(
+    restaurantId
+  )}`;
   const res = await fetch(url, { method: "GET" });
+
   if (res.status === 404) return false;
   if (!res.ok) throw new Error(`Restaurant service error: ${res.status}`);
+
   return true;
 }
 
+// Core processing logic (poison pill handling here)
 async function processOne(raw) {
   let parsed;
+
+  // invalid JSON
   try {
     parsed = JSON.parse(raw);
   } catch (e) {
     await moveToDlq({
-      raw,
-      error: e.message,
+      payload: raw,
       reason: "invalid_json",
+      error: e.message,
+      retryable: false,
       at: new Date().toISOString(),
     });
     return;
@@ -49,40 +62,49 @@ async function processOne(raw) {
 
   const orderId = parsed.order_id;
   const restaurantId = parsed.restaurant_id;
+
+  // missing fields
   if (orderId == null || restaurantId == null) {
     await moveToDlq({
       payload: parsed,
-      reason: "missing_order_id_or_restaurant_id",
+      reason: "missing_fields",
+      retryable: false,
       at: new Date().toISOString(),
     });
     return;
   }
 
+  // validate restaurant
   let exists;
   try {
     exists = await restaurantExists(restaurantId);
   } catch (e) {
     await moveToDlq({
-      order_id: orderId,
-      restaurant_id: restaurantId,
+      payload: parsed,
       reason: "restaurant_service_error",
       error: e.message,
+      retryable: true,
       at: new Date().toISOString(),
     });
     return;
   }
 
+  // poison pill: restaurant doesn't exist
   if (!exists) {
     await moveToDlq({
-      order_id: orderId,
-      restaurant_id: restaurantId,
+      payload: parsed,
       reason: "restaurant_not_found",
+      retryable: false,
       at: new Date().toISOString(),
     });
-    console.log(`[DISPATCH] poison pill: restaurant '${restaurantId}' not found for order ${orderId}`);
+
+    console.log(
+      `[DISPATCH] poison pill: restaurant '${restaurantId}' not found for order ${orderId}`
+    );
     return;
   }
 
+  // driver assignment
   const res = await fetch(`${DRIVER_SERVICE_URL}/assign`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -91,19 +113,24 @@ async function processOne(raw) {
 
   if (!res.ok) {
     const detail = await res.text();
+
     await moveToDlq({
-      order_id: orderId,
-      restaurant_id: restaurantId,
+      payload: parsed,
       reason: "driver_assign_failed",
-      status: res.status,
-      detail: detail.slice(0, 500),
+      error: detail.slice(0, 500),
+      retryable: true,
       at: new Date().toISOString(),
     });
     return;
   }
 
+  // success path
   const driver = await res.json();
-  console.log(`[DISPATCH] Assigned driver ${driver.id} to order ${orderId}`);
+
+  console.log(
+    `[DISPATCH] Assigned driver ${driver.id} to order ${orderId}`
+  );
+
   await worker.publish(
     DISPATCHED_CHANNEL,
     JSON.stringify({
@@ -112,11 +139,15 @@ async function processOne(raw) {
       restaurant_id: restaurantId,
     })
   );
+
   lastJobAt = new Date().toISOString();
 }
 
+// Worker loop
 async function run() {
-  console.log(`Order Dispatch Worker listening on ${QUEUE_KEY} (DLQ: ${DLQ_KEY})`);
+  console.log(
+    `Order Dispatch Worker listening on ${QUEUE_KEY} (DLQ: ${DLQ_KEY})`
+  );
 
   while (true) {
     try {
@@ -124,17 +155,21 @@ async function run() {
       if (!result) continue;
 
       const [, raw] = result;
-      const preview = raw.length > 120 ? `${raw.slice(0, 120)}...` : raw;
-      console.log(`[DISPATCH] Consumed job from queue: ${preview}`);
+      const preview =
+        raw.length > 120 ? `${raw.slice(0, 120)}...` : raw;
+
+      console.log(`[DISPATCH] Consumed job: ${preview}`);
 
       try {
         await processOne(raw);
       } catch (err) {
         console.error("[DISPATCH] unexpected error:", err.message);
+
         await moveToDlq({
-          raw,
+          payload: raw,
           reason: "unexpected_processing_error",
           error: err.message,
+          retryable: true,
           at: new Date().toISOString(),
         });
       }
@@ -145,11 +180,13 @@ async function run() {
   }
 }
 
+// Express health server
 const app = express();
 
 app.get("/health", async (_req, res) => {
   const checks = {};
   let healthy = true;
+
   try {
     await queue.ping();
     checks.redis = { status: "healthy" };
@@ -166,7 +203,7 @@ app.get("/health", async (_req, res) => {
     service: SERVICE_NAME,
     uptime_seconds: Math.floor((Date.now() - startTime) / 1000),
     queue_depth: queueDepth,
-    dlq_depth: dlqDepth,
+    dead_letter_queue_depth: dlqDepth, //fixing naming
     last_job_at: lastJobAt,
     checks,
   });
@@ -176,4 +213,5 @@ app.listen(PORT, () => {
   console.log(`${SERVICE_NAME} /health listening on ${PORT}`);
 });
 
+//start worker
 run();
