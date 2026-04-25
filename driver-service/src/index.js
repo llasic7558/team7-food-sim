@@ -1,11 +1,14 @@
-const express=require("express");
-const db=require("./db");
-const app=express();
-app.use(express.json());
-const PORT=process.env.PORT || 8000;
+const express = require("express");
+const db = require("./db");
 
-app.get("/health",async(req, res)=>{//
-  try{
+const app = express();
+const PORT = process.env.PORT || 8000;
+const ORDER_SERVICE_URL = process.env.ORDER_SERVICE_URL || "http://order-service:8000";
+
+app.use(express.json());
+
+app.get("/health", async (_req, res) => {
+  try {
     await db.query("SELECT 1");
     res.status(200).json({
       status: "healthy",
@@ -24,35 +27,28 @@ app.get("/health",async(req, res)=>{//
     });
   }
 });
-/* 
-curl -X POST http://localhost:8003/assign \
-  -H "Content-Type: application/json" \
-  -d '{"order_id":"test"}'
-  returned {"id":3,"name":"Alex","status":"Busy","location":"Amherst"}%  
-*/
 
-app.post("/assign",async(req,res)=>{//8003/assign
-  //updating so that we update order service information with thier
-  //assigned driver 
+app.post("/assign", async (req, res) => {
   const { order_id } = req.body || {};
+  console.log(`[driver-service] assignment requested order_id=${order_id}`);
+
   try {
-    const result=await db.query(
+    const result = await db.query(
       "SELECT * FROM drivers WHERE status = 'Free' LIMIT 1"
     );
 
-    if (result.rows.length===0){
+    if (result.rows.length === 0) {
+      console.log(`[driver-service] no drivers available order_id=${order_id}`);
       return res.status(404).json({ error: "no drivers available" });
     }
 
     const driver = result.rows[0];
 
-    //mark driver as busy
     const updated = await db.query(
       "UPDATE drivers SET status = 'Busy' WHERE id = $1 RETURNING *",
       [driver.id]
     );
 
-    //update the assignment on the order row so downstream services can read it.
     if (order_id !== undefined) {
       try {
         const resp = await fetch(`${ORDER_SERVICE_URL}/orders/${order_id}/status`, {
@@ -61,30 +57,24 @@ app.post("/assign",async(req,res)=>{//8003/assign
           body: JSON.stringify({ status: "dispatched", driver_id: driver.id }),
         });
         if (!resp.ok) {
-          console.error(`order-service returned ${resp.status} for order ${order_id}`);
+          console.error(`[driver-service] order-service dispatch update failed order_id=${order_id} status=${resp.status}`);
+        } else {
+          console.log(`[driver-service] order-service dispatch update succeeded order_id=${order_id} driver_id=${driver.id}`);
         }
       } catch (err) {
-        console.error(`failed to persist driver_id on order ${order_id}:`, err.message);
+        console.error(`[driver-service] failed to persist driver assignment order_id=${order_id}:`, err.message);
       }
     }
 
+    console.log(`[driver-service] driver assigned order_id=${order_id} driver_id=${driver.id}`);
     res.json(updated.rows[0]);
-
-
   } catch (err) {
-    console.error(err);
+    console.error('[driver-service] failed to assign driver:', err.message);
     res.status(500).json({ error: "failed to assign driver" });
   }
 });
 
-//helper for delivery-tracker-service update a driver's distance_from_order
-// code is signifying the end condtion of the app, where once a driver has driven thier
-// order to the destination, we can free them and complete thier delievery as well
-const ORDER_SERVICE_URL = process.env.ORDER_SERVICE_URL || "http://order-service:8000";
 app.put("/drivers/:id/distance", async (req, res) => {
-  //distance from order is always given, but stataus and order id only sent from
-  // delveiry tracker service when the tracker is done with the simulation
-  // and the order has been "delivered"
   const { distance_from_order, status, order_id } = req.body || {};
   if (distance_from_order === undefined) {
     return res.status(400).json({ error: "distance_from_order is required" });
@@ -94,49 +84,48 @@ app.put("/drivers/:id/distance", async (req, res) => {
   }
 
   try {
-    //we are setting the driver free as thier status is now "Free"
     let result;
-    if(status !== undefined){
+    if (status !== undefined) {
       result = await db.query(
-          "UPDATE drivers SET distance_from_order = $1, status = $2 WHERE id = $3 RETURNING *",
-          [distance_from_order, status, req.params.id]
-        )
-    }else{
+        "UPDATE drivers SET distance_from_order = $1, status = $2 WHERE id = $3 RETURNING *",
+        [distance_from_order, status, req.params.id]
+      );
+    } else {
       result = await db.query(
-          "UPDATE drivers SET distance_from_order = $1 WHERE id = $2 RETURNING *",
-          [distance_from_order, req.params.id]
-        );
+        "UPDATE drivers SET distance_from_order = $1 WHERE id = $2 RETURNING *",
+        [distance_from_order, req.params.id]
+      );
     }
     if (result.rows.length === 0) {
       return res.status(404).json({ error: "driver not found", id: req.params.id });
     }
 
     const driver = result.rows[0];
-    //checking if order is complted and done
     let orderCompleted = false;
-    //driver is free and the order exists, a double check for my own sanity
     if (status === "Free" && order_id !== undefined) {
       try {
-        //could double check if order id has the right driver id, but logically
-        //should not have to
         const resp = await fetch(`${ORDER_SERVICE_URL}/orders/${order_id}/status`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ status: "delivered" }),
         });
         if (!resp.ok) {
-          console.error(`order-service returned ${resp.status} for order ${order_id}`);
+          console.error(`[driver-service] order-service delivered update failed order_id=${order_id} status=${resp.status}`);
         } else {
           orderCompleted = true;
+          console.log(`[driver-service] order marked delivered order_id=${order_id} driver_id=${req.params.id}`);
         }
       } catch (err) {
-        console.error(`failed to mark order ${order_id} delivered:`, err.message);
+        console.error(`[driver-service] failed to mark delivered order_id=${order_id}:`, err.message);
       }
     }
-    //send back to delveiry tracker the info and if the order is done, for notification worker(later)
+
+    console.log(
+      `[driver-service] driver distance updated driver_id=${req.params.id} distance=${distance_from_order} status=${status ?? driver.status} order_id=${order_id ?? 'none'}`
+    );
     res.json({ ...driver, order_completed: orderCompleted });
   } catch (err) {
-    console.error(err);
+    console.error('[driver-service] failed to update driver:', err.message);
     res.status(500).json({ error: "failed to update driver" });
   }
 });
@@ -144,20 +133,23 @@ app.put("/drivers/:id/distance", async (req, res) => {
 app.listen(PORT, () => {
   console.log(`Driver service running on port ${PORT}`);
 });
-app.get("/drivers", async(req,res)=>{
+
+app.get("/drivers", async (req, res) => {
   try {
-    const {status}=req.query;
+    const { status } = req.query;
     let result;
-    if (status){
+    if (status) {
       result = await db.query(
         "SELECT * FROM drivers WHERE status = $1",
         [status]
       );
     } else {
-      result=await db.query("SELECT * FROM drivers");
+      result = await db.query("SELECT * FROM drivers");
     }
-    res.json({drivers:result.rows});
+    console.log(`[driver-service] listed drivers count=${result.rows.length} status=${status ?? 'all'}`);
+    res.json({ drivers: result.rows });
   } catch (err) {
+    console.error('[driver-service] list drivers failed:', err.message);
     res.status(500).json({ error:"internal server error"});
   }
 });
@@ -168,8 +160,10 @@ app.get("/drivers/:id", async (req, res) => {
     if (result.rows.length === 0) {
       return res.status(404).json({ error: "driver not found", id: req.params.id });
     }
+    console.log(`[driver-service] fetched driver driver_id=${req.params.id}`);
     res.json(result.rows[0]);
   } catch (err) {
+    console.error(`[driver-service] get driver failed driver_id=${req.params.id}:`, err.message);
     res.status(500).json({ error: "internal server error" });
   }
 });

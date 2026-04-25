@@ -12,7 +12,6 @@ const PORT = process.env.PORT || 8110;
 const SERVICE_NAME = process.env.SERVICE_NAME || "order-dispatch-worker";
 const startTime = Date.now();
 
-// Separate connections: worker blocks on BLPOP; queue client serves /health and DLQ writes.
 const worker = new Redis(REDIS_URL);
 const queue = new Redis(REDIS_URL);
 
@@ -20,8 +19,8 @@ let lastJobAt = null;
 
 async function moveToDlq(record) {
   await queue.rpush(DLQ_KEY, JSON.stringify(record));
-  console.log(
-    `[DISPATCH] moved job to DLQ (${record.reason || record.error || "unknown"}): order_id=${record.order_id ?? "n/a"}`
+  console.error(
+    `[order-dispatch-worker] moved job to DLQ order_id=${record.order_id ?? "n/a"} reason=${record.reason || record.error || "unknown"}`
   );
 }
 
@@ -58,6 +57,8 @@ async function processOne(raw) {
     return;
   }
 
+  console.log(`[order-dispatch-worker] processing job order_id=${orderId} restaurant_id=${restaurantId}`);
+
   let exists;
   try {
     exists = await restaurantExists(restaurantId);
@@ -79,7 +80,7 @@ async function processOne(raw) {
       reason: "restaurant_not_found",
       at: new Date().toISOString(),
     });
-    console.log(`[DISPATCH] poison pill: restaurant '${restaurantId}' not found for order ${orderId}`);
+    console.log(`[order-dispatch-worker] restaurant not found order_id=${orderId} restaurant_id=${restaurantId}`);
     return;
   }
 
@@ -103,7 +104,7 @@ async function processOne(raw) {
   }
 
   const driver = await res.json();
-  console.log(`[DISPATCH] Assigned driver ${driver.id} to order ${orderId}`);
+  console.log(`[order-dispatch-worker] driver assigned order_id=${orderId} driver_id=${driver.id}`);
   await worker.publish(
     DISPATCHED_CHANNEL,
     JSON.stringify({
@@ -112,6 +113,7 @@ async function processOne(raw) {
       restaurant_id: restaurantId,
     })
   );
+  console.log(`[order-dispatch-worker] published dispatched event order_id=${orderId}`);
   lastJobAt = new Date().toISOString();
 }
 
@@ -124,13 +126,17 @@ async function run() {
       if (!result) continue;
 
       const [, raw] = result;
-      const preview = raw.length > 120 ? `${raw.slice(0, 120)}...` : raw;
-      console.log(`[DISPATCH] Consumed job from queue: ${preview}`);
+      try {
+        const parsed = JSON.parse(raw);
+        console.log(`[order-dispatch-worker] consumed queue job order_id=${parsed.order_id ?? 'n/a'}`);
+      } catch (_err) {
+        console.log('[order-dispatch-worker] consumed queue job with invalid json');
+      }
 
       try {
         await processOne(raw);
       } catch (err) {
-        console.error("[DISPATCH] unexpected error:", err.message);
+        console.error("[order-dispatch-worker] unexpected error:", err.message);
         await moveToDlq({
           raw,
           reason: "unexpected_processing_error",
@@ -139,7 +145,7 @@ async function run() {
         });
       }
     } catch (err) {
-      console.error("[DISPATCH] loop error:", err.message);
+      console.error("[order-dispatch-worker] loop error:", err.message);
       await new Promise((r) => setTimeout(r, 1000));
     }
   }
