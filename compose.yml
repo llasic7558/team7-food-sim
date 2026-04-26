@@ -332,6 +332,20 @@ services:
       redis:
         condition: service_healthy
 
+notification-worker: 
+  build: ./notification-worker
+  container_name: notification-worker
+  restart: unless-stopped
+  networks: 
+    - team-net
+  environment:
+    REDIS_URL: redis://redis:6379
+    SERVICE_NAME: notification-worker
+  depends_on: 
+    redis:
+      condition:service_healthy
+
+
   rating-and-review-service:
     build: ./rating-and-review-service
     container_name: rating-and-review-service
