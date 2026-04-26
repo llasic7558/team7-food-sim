@@ -1,9 +1,12 @@
 // TODO: Notification Worker — consumes delivery status events from Redis queue, logs notifications
 import { createClient } from 'redis';
+import express from 'express';
 
 const SERVICE_NAME = process.env.SERVICE_NAME || 'notification-worker';
 const REDIS_URL = process.env.REDIS_URL || 'redis://redis:6379';
 const NOTIFICATION_QUEUE = 'queue:notifications';
+const PORT = process.env.PORT||8000;
+const app = express();
 
 // Friendly log messages per event type. The Order Service publishes events
 // shaped like { event: "order_<status>", order_id, status } ... 
@@ -26,10 +29,35 @@ function formatNotification(event) {
 const worker = createClient({ url: REDIS_URL });
 worker.on('error', (err) => console.error('redis worker error:', err.message));
 
+/*
+health check returns curl http://localhost:8006/health
+{"status":"healthy","service":"notification-worker","checks":{"redis":{"status":"healthy"}}}% 
+*/
+app.get("/health", async (req, res)=>{
+  try{
+    await worker.ping();
+    res.status(200).json({
+      status: "healthy",
+      service: SERVICE_NAME,
+      checks: {
+        redis: {status: "healthy"}
+      }
+    });
+  } catch(err){
+    res.status(503).json({
+      status: "unhealthy",
+      service: SERVICE_NAME,
+      checks: {
+        redis: {status: "unhealthy"}
+      }
+    });
+  }
+});
+
 async function processQueue() {
   while (true) {
     try {
-      const result = await worker.brPop(NOTIFICATION_QUEUE, 0);
+      const result = await worker.brPop(NOTIFICATION_QUEUE, 5);//changed from 0 to 5 so it isnt stuck
       const raw = result.element;
 
       // TOdo poison-pill detection + DLQ routing wraps this block.
@@ -45,6 +73,10 @@ async function processQueue() {
     }
   }
 }
+//start express server
+app.listen(PORT, () => {
+  console.log(`${SERVICE_NAME} running on port ${PORT}`);
+});
 
 async function main() {
   await worker.connect();
