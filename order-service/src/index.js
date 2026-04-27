@@ -16,6 +16,7 @@ redis.connect()
 
 const RESTAURANT_SERVICE_URL = process.env.RESTAURANT_SERVICE_URL || 'http://restaurant-service:8000';
 const ORDER_DISPATCH_QUEUE = 'queue:order_dispatch';
+const SURGE_PRICING_QUEUE = 'queue:surge_pricing';
 const NOTIFICATION_QUEUE = 'queue:notifications';
 
 const IDEMPOTENCY_TTL_SEC = 86400;
@@ -253,15 +254,9 @@ app.post('/orders', async (req, res) => {
     const order = result.rows[0];
     const response = formatOrder(order);
 
-    console.log(
-      `[order-service] order created order_id=${order.id} customer_id=${customer_id} restaurant_id=${restaurant_id} total=${validation.total}`
-    );
-
-    await redis.rPush(
-      ORDER_DISPATCH_QUEUE,
-      JSON.stringify({ order_id: order.id, restaurant_id })
-    );
-    console.log(`[order-service] dispatch queued queue=${ORDER_DISPATCH_QUEUE} order_id=${order.id}`);
+    console.log(`Order ${order.id} created (customer=${customer_id}, restaurant=${restaurant_id}, total=$${validation.total})`);
+    await redis.rPush(ORDER_DISPATCH_QUEUE, JSON.stringify({ order_id: order.id, restaurant_id }));
+    await redis.rPush(SURGE_PRICING_QUEUE, JSON.stringify({ order_id: order.id, restaurant_id: Number(restaurant_id) }));
 
     await redis.set(redisKey, JSON.stringify(response), { EX: IDEMPOTENCY_TTL_SEC });
     console.log(`[order-service] idempotency result cached key=${idempotencyKey}`);
