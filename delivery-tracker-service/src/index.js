@@ -82,6 +82,7 @@ async function getOrderFromService(id) {
 async function runDelivery(evt) {
   const orderId = Number(evt.order_id);
   const driverId = Number(evt.driver_id);
+  console.log(`[delivery-tracker-service] received delivery event order_id=${orderId} driver_id=${driverId}`);
   if (!orderId || !driverId) {
     console.error('bad event, missing ids:', evt);
     return;

@@ -24,8 +24,8 @@ let lastJobAt = null;
 // DLQ helper (standardized)
 async function moveToDlq(record) {
   await queue.rpush(DLQ_KEY, JSON.stringify(record));
-  console.log(
-    `[DLQ] reason=${record.reason} retryable=${record.retryable ?? "unknown"}`
+  console.error(
+    `[order-dispatch-worker] moved job to DLQ order_id=${record.order_id ?? "n/a"} reason=${record.reason || record.error || "unknown"}`
   );
 }
 
@@ -74,7 +74,8 @@ async function processOne(raw) {
     return;
   }
 
-  // validate restaurant
+  console.log(`[order-dispatch-worker] processing job order_id=${orderId} restaurant_id=${restaurantId}`);
+
   let exists;
   try {
     exists = await restaurantExists(restaurantId);
@@ -174,7 +175,7 @@ async function run() {
         });
       }
     } catch (err) {
-      console.error("[DISPATCH] loop error:", err.message);
+      console.error("[order-dispatch-worker] loop error:", err.message);
       await new Promise((r) => setTimeout(r, 1000));
     }
   }

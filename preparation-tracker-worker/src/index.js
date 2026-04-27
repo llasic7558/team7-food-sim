@@ -33,8 +33,11 @@ async function initRedis() {
 
   await subscriber.subscribe(DISPATCHED_CHANNEL, async (message) => {
     try {
+      const event = JSON.parse(message);
+      console.log(`[preparation-tracker-worker] dispatch event received order_id=${event.order_id} driver_id=${event.driver_id}`);
       // ALSO push into a queue for depth tracking
       await queue.lPush(PREP_QUEUE, message);
+      console.log(`[preparation-tracker-worker] queued prep job order_id=${event.order_id}`);
     } catch (err) {
       //make sure we are catching errors
       console.error('failed to push onto prep_queue:', err.message);
