@@ -5,6 +5,7 @@ const db = require('./db');
 const QUEUE_KEY = 'queue:surge_pricing';
 const DLQ_KEY = 'queue:surge_pricing:dlq';
 const REDIS_URL = process.env.REDIS_URL || 'redis://redis:6379';
+const ORDER_SERVICE_URL = process.env.ORDER_SERVICE_URL || 'http://order-service:8000';
 const PORT = process.env.PORT || 8200;
 const SERVICE_NAME = process.env.SERVICE_NAME || 'surge-pricing-worker';
 
@@ -13,6 +14,10 @@ const SURGE_WINDOW_SECONDS = parseInt(process.env.SURGE_WINDOW_SECONDS || '300',
 const SURGE_THRESHOLD = parseInt(process.env.SURGE_THRESHOLD || '5', 10);
 const SURGE_MULTIPLIER = parseFloat(process.env.SURGE_MULTIPLIER || '1.5');
 const SURGE_DURATION_SECONDS = parseInt(process.env.SURGE_DURATION_SECONDS || '600', 10); // 10 min
+const SURGE_ORDER_DEDUPE_TTL_SECONDS = parseInt(
+  process.env.SURGE_ORDER_DEDUPE_TTL_SECONDS || '86400',
+  10
+);
 
 const startTime = Date.now();
 
@@ -31,6 +36,43 @@ async function moveToDlq(record) {
   console.log(
     `[SURGE] moved job to DLQ (${record.reason || 'unknown'}): restaurant_id=${record.restaurant_id ?? 'n/a'}`
   );
+}
+
+function dedupeKeyForOrder(orderId) {
+  return `surge:seen_order:${orderId}`;
+}
+
+async function reserveOrderEvent(orderId) {
+  const reserved = await queue.set(
+    dedupeKeyForOrder(orderId),
+    '1',
+    'EX',
+    SURGE_ORDER_DEDUPE_TTL_SECONDS,
+    'NX'
+  );
+
+  return reserved === 'OK';
+}
+
+async function fetchOrderPricing(orderId) {
+  const res = await fetch(`${ORDER_SERVICE_URL}/orders/${orderId}`);
+  if (!res.ok) {
+    throw new Error(`Order service error: ${res.status}`);
+  }
+  return res.json();
+}
+
+async function logSurgedOrderPrice(orderId, multiplier) {
+  try {
+    const order = await fetchOrderPricing(orderId);
+    const baseTotal = Number(order.base_total_price ?? order.total_price);
+    const surgedTotal = Math.round(baseTotal * multiplier * 100) / 100;
+    console.log(
+      `[SURGE] order_id=${orderId} base_total=$${baseTotal.toFixed(2)} surged_total=$${surgedTotal.toFixed(2)} multiplier=${multiplier}`
+    );
+  } catch (err) {
+    console.error(`[SURGE] failed to log surged price order_id=${orderId}:`, err.message);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -59,7 +101,7 @@ async function checkAndActivateSurge(restaurantId) {
 
     if (existing) {
       console.log(`[SURGE] restaurant ${restaurantId}: surge already active (multiplier=${existing})`);
-      return;
+      return parseFloat(existing);
     }
 
     // Activate surge — write to Redis and pricing DB
@@ -88,7 +130,11 @@ async function checkAndActivateSurge(restaurantId) {
       started_at: startedAt.toISOString(),
       expires_at: expiresAt.toISOString(),
     }));
+
+    return SURGE_MULTIPLIER;
   }
+
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -131,7 +177,17 @@ async function processOne(raw) {
     return;
   }
 
-  await checkAndActivateSurge(restaurantId);
+  const isNewOrderEvent = await reserveOrderEvent(orderId);
+  if (!isNewOrderEvent) {
+    console.log(`[SURGE] duplicate order event ignored order_id=${orderId} restaurant_id=${restaurantId}`);
+    lastJobAt = new Date().toISOString();
+    return;
+  }
+
+  const activeMultiplier = await checkAndActivateSurge(restaurantId);
+  if (activeMultiplier) {
+    await logSurgedOrderPrice(orderId, activeMultiplier);
+  }
   lastJobAt = new Date().toISOString();
 }
 
