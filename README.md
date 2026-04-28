@@ -1078,6 +1078,33 @@ curl http://surge-pricing-worker:8200/health
 }
 ```
 
+### How to Verify It Is Working
+
+1. Watch worker health and queue metrics:
+
+```bash
+curl http://surge-pricing-worker:8200/health
+```
+
+2. Generate multiple orders for the same restaurant so the worker sees enough
+   volume to cross the configured surge threshold.
+
+3. Confirm the worker stays healthy and that `last_job_at` advances while
+   `dlq_depth` remains low or zero for valid traffic.
+
+4. Re-fetch the restaurant menu and confirm the response includes the current
+   `surge_multiplier` and updated prices when surge is active:
+
+```bash
+curl http://restaurant-service:8000/restaurants/1/menu
+```
+
+5. If needed, inspect logs from the worker for surge activation messages:
+
+```bash
+docker compose logs -f surge-pricing-worker
+```
+
 ---
 
 ## Load Testing
