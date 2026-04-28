@@ -105,8 +105,13 @@ async function validateItemsWithRestaurant(restaurantId, items) {
   return { ok: true, error: '', total };
 }
 
-function pushNotification(event, order) {
-  const payload = JSON.stringify({ event, order_id: order.id, status: order.status });
+function pushNotification(event, order, extra = {}) {
+  const payload = JSON.stringify({
+    event,
+    order_id: order.id,
+    status: order.status,
+    ...extra,
+  });
 
   redis.lPush(NOTIFICATION_QUEUE, payload)
     .then(() => {
@@ -255,6 +260,7 @@ app.post('/orders', async (req, res) => {
     const response = formatOrder(order);
 
     console.log(`Order ${order.id} created (customer=${customer_id}, restaurant=${restaurant_id}, total=$${validation.total})`);
+    pushNotification('order_confirmed', order, { status: 'confirmed' });
     await redis.rPush(ORDER_DISPATCH_QUEUE, JSON.stringify({ order_id: order.id, restaurant_id }));
     await redis.rPush(SURGE_PRICING_QUEUE, JSON.stringify({ order_id: order.id, restaurant_id: Number(restaurant_id) }));
 
