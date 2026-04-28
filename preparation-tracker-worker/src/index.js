@@ -9,6 +9,7 @@ const PREP_QUEUE = 'prep_queue';
 const PREP_DLQ = 'prep_dlq';
 const DISPATCHED_CHANNEL = 'order_dispatched';
 const READY_CHANNEL = 'order_ready';
+const NOTIFICATION_QUEUE = 'queue:notifications';
 const startTime = Date.now();
 
 const subscriber = createClient({ url: REDIS_URL });
@@ -70,6 +71,14 @@ async function processQueue() {
       };
       //added some logging to record the order is done and going to delivery tracker
       await publisher.publish(READY_CHANNEL, JSON.stringify(readyEvent));
+      await queue.rPush(
+        NOTIFICATION_QUEUE,
+        JSON.stringify({
+          event: 'order_ready',
+          order_id: event.order_id,
+          status: 'ready',
+        })
+      );
       console.log(`[PREP] order ${event.order_id} ready (prep=${prepTime}ms)`);
 
       lastJobAt = new Date().toISOString();

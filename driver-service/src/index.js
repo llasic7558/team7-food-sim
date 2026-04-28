@@ -7,6 +7,29 @@ const ORDER_SERVICE_URL = process.env.ORDER_SERVICE_URL || "http://order-service
 
 app.use(express.json());
 
+async function recordAssignment(orderId, driverId) {
+  if (orderId == null) return;
+  await db.query(
+    `INSERT INTO driver_assignments (order_id, driver_id, final_status)
+     VALUES ($1, $2, 'assigned')
+     ON CONFLICT (order_id)
+     DO UPDATE SET driver_id = EXCLUDED.driver_id, final_status = 'assigned'`,
+    [String(orderId), driverId]
+  );
+}
+
+async function completeAssignment(orderId, driverId, finalStatus, distance) {
+  if (orderId == null) return;
+  await db.query(
+    `UPDATE driver_assignments
+     SET completed_at = NOW(),
+         final_status = $3,
+         last_known_distance = $4
+     WHERE order_id = $1 AND driver_id = $2`,
+    [String(orderId), driverId, finalStatus, distance ?? null]
+  );
+}
+
 app.get("/health", async (_req, res) => {
   try {
     await db.query("SELECT 1");
@@ -64,6 +87,12 @@ app.post("/assign", async (req, res) => {
       } catch (err) {
         console.error(`[driver-service] failed to persist driver assignment order_id=${order_id}:`, err.message);
       }
+
+      try {
+        await recordAssignment(order_id, driver.id);
+      } catch (err) {
+        console.error(`[driver-service] failed to record assignment order_id=${order_id}:`, err.message);
+      }
     }
 
     console.log(`[driver-service] driver assigned order_id=${order_id} driver_id=${driver.id}`);
@@ -118,6 +147,12 @@ app.put("/drivers/:id/distance", async (req, res) => {
       } catch (err) {
         console.error(`[driver-service] failed to mark delivered order_id=${order_id}:`, err.message);
       }
+
+      try {
+        await completeAssignment(order_id, Number(req.params.id), 'delivered', distance_from_order);
+      } catch (err) {
+        console.error(`[driver-service] failed to complete assignment order_id=${order_id}:`, err.message);
+      }
     }
 
     console.log(
@@ -128,10 +163,6 @@ app.put("/drivers/:id/distance", async (req, res) => {
     console.error('[driver-service] failed to update driver:', err.message);
     res.status(500).json({ error: "failed to update driver" });
   }
-});
-
-app.listen(PORT, () => {
-  console.log(`Driver service running on port ${PORT}`);
 });
 
 app.get("/drivers", async (req, res) => {
@@ -166,4 +197,21 @@ app.get("/drivers/:id", async (req, res) => {
     console.error(`[driver-service] get driver failed driver_id=${req.params.id}:`, err.message);
     res.status(500).json({ error: "internal server error" });
   }
+});
+
+app.get("/drivers/:id/assignments", async (req, res) => {
+  try {
+    const result = await db.query(
+      `SELECT * FROM driver_assignments WHERE driver_id = $1 ORDER BY assigned_at DESC`,
+      [req.params.id]
+    );
+    res.json({ assignments: result.rows });
+  } catch (err) {
+    console.error(`[driver-service] list assignments failed driver_id=${req.params.id}:`, err.message);
+    res.status(500).json({ error: "internal server error" });
+  }
+});
+
+app.listen(PORT, () => {
+  console.log(`Driver service running on port ${PORT}`);
 });

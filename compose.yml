@@ -314,6 +314,7 @@ services:
     environment:
       DATABASE_URL: postgres://app:secret@pricing-db:5432/pricing
       REDIS_URL: redis://redis:6379
+      ORDER_SERVICE_URL: http://order-service:8000
       SERVICE_NAME: surge-pricing-worker
       PORT: 8200
       SURGE_WINDOW_SECONDS: 300
@@ -344,6 +345,12 @@ services:
       PORT: 8000
     ports:
       - "8006:8000"
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:8000/health']
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     depends_on: 
       redis:
         condition: service_healthy

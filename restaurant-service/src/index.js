@@ -5,6 +5,7 @@ const db = require('./db');
 const app = express();
 const PORT = process.env.PORT || 8000;
 const CACHE_ENABLED = process.env.CACHE_ENABLED !== 'false';
+const BUSINESS_TIMEZONE = process.env.BUSINESS_TIMEZONE || 'America/New_York';
 const startTime = Date.now();
 
 console.log(`restaurant-service starting (CACHE_ENABLED=${CACHE_ENABLED})`);
@@ -16,6 +17,73 @@ redis.on('error', (err) => console.error('[restaurant-service] Redis error:', er
 redis.connect()
   .then(() => console.log('[restaurant-service] Redis connected'))
   .catch((err) => console.error('[restaurant-service] Redis connect failed:', err.message));
+
+function getBusinessClock(now = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: BUSINESS_TIMEZONE,
+    weekday: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(now);
+
+  const weekdayMap = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+  const lookup = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+
+  return {
+    dayOfWeek: weekdayMap[lookup.weekday],
+    time: `${lookup.hour}:${lookup.minute}`,
+  };
+}
+
+function normalizeWindow(row) {
+  return {
+    day_of_week: row.day_of_week,
+    opens_at: row.opens_at?.slice(0, 5) ?? row.opens_at,
+    closes_at: row.closes_at?.slice(0, 5) ?? row.closes_at,
+  };
+}
+
+function isRestaurantOpenNow(windows) {
+  if (!windows || windows.length === 0) return true;
+
+  const clock = getBusinessClock();
+  return windows.some((window) =>
+    window.day_of_week === clock.dayOfWeek &&
+    clock.time >= window.opens_at &&
+    clock.time < window.closes_at
+  );
+}
+
+async function fetchAvailabilityWindowsForRestaurants(restaurantIds) {
+  if (!restaurantIds.length) return new Map();
+
+  const result = await db.query(
+    `SELECT restaurant_id, day_of_week, opens_at::text, closes_at::text
+     FROM availability_windows
+     WHERE restaurant_id = ANY($1::int[])
+     ORDER BY restaurant_id, day_of_week, opens_at`,
+    [restaurantIds]
+  );
+
+  const grouped = new Map();
+  for (const row of result.rows) {
+    const normalized = normalizeWindow(row);
+    const list = grouped.get(row.restaurant_id) || [];
+    list.push(normalized);
+    grouped.set(row.restaurant_id, list);
+  }
+
+  return grouped;
+}
+
+function decorateRestaurant(row, windows = []) {
+  return {
+    ...row,
+    availability_windows: windows,
+    is_open_now: isRestaurantOpenNow(windows),
+  };
+}
 
 app.get('/health', async (_req, res) => {
   const checks = {};
@@ -51,8 +119,15 @@ app.get('/health', async (_req, res) => {
 app.get('/restaurants', async (_req, res) => {
   try {
     const result = await db.query('SELECT * FROM restaurants ORDER BY name');
+    const windowsByRestaurant = await fetchAvailabilityWindowsForRestaurants(
+      result.rows.map((row) => row.id)
+    );
     console.log(`[restaurant-service] listed restaurants count=${result.rows.length}`);
-    res.json({ restaurants: result.rows });
+    res.json({
+      restaurants: result.rows.map((row) =>
+        decorateRestaurant(row, windowsByRestaurant.get(row.id) || [])
+      ),
+    });
   } catch (error) {
     console.error('[restaurant-service] failed to list restaurants:', error.message);
     res.status(500).json({ error: 'internal server error' });
@@ -66,8 +141,15 @@ app.get('/restaurants/search', async (req, res) => {
   }
   try {
     const result = await db.query('SELECT * FROM restaurants WHERE name ILIKE $1', [`%${name}%`]);
+    const windowsByRestaurant = await fetchAvailabilityWindowsForRestaurants(
+      result.rows.map((row) => row.id)
+    );
     console.log(`[restaurant-service] search name="${name}" count=${result.rows.length}`);
-    res.json({ restaurants: result.rows });
+    res.json({
+      restaurants: result.rows.map((row) =>
+        decorateRestaurant(row, windowsByRestaurant.get(row.id) || [])
+      ),
+    });
   } catch (err) {
     console.error(`[restaurant-service] search failed name="${name}":`, err.message);
     res.status(500).json({ error: 'internal server error' });
@@ -80,8 +162,11 @@ app.get('/restaurants/:id', async (req, res) => {
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'restaurant not found', id: req.params.id });
     }
+    const windowsByRestaurant = await fetchAvailabilityWindowsForRestaurants([Number(req.params.id)]);
     console.log(`[restaurant-service] fetched restaurant restaurant_id=${req.params.id}`);
-    res.json(result.rows[0]);
+    res.json(
+      decorateRestaurant(result.rows[0], windowsByRestaurant.get(Number(req.params.id)) || [])
+    );
   } catch (err) {
     console.error(`[restaurant-service] restaurant fetch failed restaurant_id=${req.params.id}:`, err.message);
     res.status(500).json({ error: 'internal server error' });
@@ -110,6 +195,9 @@ app.get('/restaurants/:id/menu', async (req, res) => {
       return res.status(404).json({ error: 'restaurant not found', id: restaurantId });
     }
 
+    const windowsByRestaurant = await fetchAvailabilityWindowsForRestaurants([Number(restaurantId)]);
+    const availabilityWindows = windowsByRestaurant.get(Number(restaurantId)) || [];
+    const restaurantOpen = isRestaurantOpenNow(availabilityWindows);
     const items = await db.query('SELECT * FROM menu_items WHERE restaurant_id = $1', [restaurantId]);
 
     let surgeMultiplier = 1.0;
@@ -120,7 +208,16 @@ app.get('/restaurants/:id/menu', async (req, res) => {
       console.error('Redis surge read error:', err.message);
     }
 
-    const body = { restaurant_id: restaurantId, items: items.rows, surge_multiplier: surgeMultiplier };
+    const body = {
+      restaurant_id: restaurantId,
+      restaurant_open: restaurantOpen,
+      availability_windows: availabilityWindows,
+      items: items.rows.map((item) => ({
+        ...item,
+        available_now: item.available && restaurantOpen,
+      })),
+      surge_multiplier: surgeMultiplier,
+    };
 
     if (CACHE_ENABLED) {
       redis.set(`menu:${restaurantId}`, JSON.stringify(body), { EX: 300 }).then(() => {
