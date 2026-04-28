@@ -79,7 +79,11 @@ async function validateItemsWithRestaurant(restaurantId, items) {
     if (key) menu[key] = item;
   }
 
-  let total = 0;
+  if (body.restaurant_open === false) {
+    return { ok: false, error: `Restaurant '${restaurantId}' is currently closed`, total: 0, baseTotal: 0, surgeMultiplier: 1 };
+  }
+
+  let baseTotal = 0;
   for (const line of items) {
     const key = lineItemKey(line);
     if (key == null) {
@@ -90,19 +94,23 @@ async function validateItemsWithRestaurant(restaurantId, items) {
       console.log(`[order-service] menu item missing restaurant_id=${restaurantId} item_id=${key}`);
       return { ok: false, error: `Item '${key}' not on menu`, total: 0 };
     }
+    if (menu[key].available === false || menu[key].available_now === false) {
+      return { ok: false, error: `Item '${key}' is not currently available`, total: 0, baseTotal: 0, surgeMultiplier: 1 };
+    }
     const price = parseFloat(menu[key].price);
     if (isNaN(price)) {
-      return { ok: false, error: 'Invalid menu item price from restaurant service', total: 0 };
+      return { ok: false, error: 'Invalid menu item price from restaurant service', total: 0, baseTotal: 0, surgeMultiplier: 1 };
     }
-    total += price * qty;
+    baseTotal += price * qty;
   }
 
   const surgeMultiplier = body.surge_multiplier ?? 1.0;
-  total *= surgeMultiplier;
+  let total = baseTotal * surgeMultiplier;
   total = Math.round(total * 100) / 100;
+  baseTotal = Math.round(baseTotal * 100) / 100;
 
   console.log(`[order-service] menu validation complete restaurant_id=${restaurantId} total=${total}`);
-  return { ok: true, error: '', total };
+  return { ok: true, error: '', total, baseTotal, surgeMultiplier };
 }
 
 function pushNotification(event, order, extra = {}) {
@@ -130,7 +138,10 @@ function formatOrder(row) {
     customer_id: row.customer_id,
     restaurant_id: row.restaurant_id,
     items: row.items,
+    base_total_price: parseFloat(row.base_total_price ?? row.total_price),
     total_price: parseFloat(row.total_price),
+    payment_status: row.payment_status,
+    payment_reference: row.payment_reference,
     status: row.status,
     driver_id: row.driver_id,
     created_at: row.created_at.toISOString(),
@@ -251,10 +262,17 @@ app.post('/orders', async (req, res) => {
     }
 
     const result = await db.query(
-      `INSERT INTO orders (customer_id, restaurant_id, items, total_price, status)
-       VALUES ($1, $2, $3, $4, 'pending')
+      `INSERT INTO orders (customer_id, restaurant_id, items, base_total_price, total_price, payment_status, payment_reference, status)
+       VALUES ($1, $2, $3, $4, $5, 'authorized', $6, 'pending')
        RETURNING *`,
-      [customer_id, restaurant_id, JSON.stringify(items), validation.total]
+      [
+        customer_id,
+        restaurant_id,
+        JSON.stringify(items),
+        validation.baseTotal,
+        validation.total,
+        `auth-${idempotencyKey}`,
+      ]
     );
     const order = result.rows[0];
     const response = formatOrder(order);
