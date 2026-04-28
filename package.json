@@ -1,0 +1,24 @@
+{
+  "name": "team7-food-sim",
+  "version": "1.0.0",
+  "description": "**Course:** COMPSCI 426   **Team:** [Dev, Emily and Kanika], [Beatrice and Raymond], [Shao and Luka]   **System:** Food Delivery Coordination   **Repository:** [GitHub URL]",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/llasic7558/team7-food-sim.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/llasic7558/team7-food-sim/issues"
+  },
+  "homepage": "https://github.com/llasic7558/team7-food-sim#readme",
+  "dependencies": {
+    "ioredis": "^5.10.1"
+  }
+}
