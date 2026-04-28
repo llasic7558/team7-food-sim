@@ -31,6 +31,22 @@ const STAGES = [
 //about distance from
 const deliveries = new Map();
 
+function notificationEventForStage(status) {
+  if (status === 'picked_up') return 'order_picked_up';
+  if (status === 'in_transit') return 'order_in_transit';
+  if (status === 'nearby') return 'order_nearby';
+  return `order_${status}`;
+}
+
+async function enqueueNotification(orderId, status) {
+  const payload = JSON.stringify({
+    event: notificationEventForStage(status),
+    order_id: orderId,
+    status,
+  });
+  await redis.rPush(NOTIFICATION_QUEUE, payload);
+}
+
 //send a request to the driver service to update thier distance from location
 async function putDriverDistance(driverId, body) {
   const url = `${DRIVER_SERVICE_URL}/drivers/${driverId}/distance`;
@@ -82,6 +98,7 @@ async function getOrderFromService(id) {
 async function runDelivery(evt) {
   const orderId = Number(evt.order_id);
   const driverId = Number(evt.driver_id);
+  console.log(`[delivery-tracker-service] received delivery event order_id=${orderId} driver_id=${driverId}`);
   if (!orderId || !driverId) {
     console.error('bad event, missing ids:', evt);
     return;
@@ -131,6 +148,17 @@ async function runDelivery(evt) {
       await putDriverDistance(driverId, {
         distance_from_order: stage.distance,
       });
+    }
+
+    if (stage.status !== 'delivered') {
+      try {
+        await enqueueNotification(orderId, stage.status);
+      } catch (err) {
+        console.error(
+          `[delivery-tracker-service] failed to queue notification order_id=${orderId} status=${stage.status}:`,
+          err.message
+        );
+      }
     }
 
     console.log(`order ${orderId} -> ${stage.status} (${stage.distance})`);

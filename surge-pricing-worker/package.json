@@ -1,10 +1,14 @@
 {
   "name": "surge-pricing-worker",
   "version": "1.0.0",
+  "description": "Surge pricing worker for food delivery system",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js"
   },
   "dependencies": {
+    "express": "^4.21.0",
+    "ioredis": "^5.4.1",
+    "pg": "^8.13.0"
   }
 }

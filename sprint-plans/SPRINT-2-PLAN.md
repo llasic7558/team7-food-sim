@@ -59,9 +59,9 @@ Surge Pricing Worker	worker	Consumes order volume events from a Redis queue. Whe
 |  Beatrice   | `preparation-tracker-worker/` |
 |  Dev   | `restaurant-service/` |
 |  Emily   | `drivers-service/ and order-dispatch-worker/` |
-|  Kanika   | `[path]` |
-|  Rishi   | `[path]` |
-|  Shao   | `[path]` |
+|  Kanika   | `drivers-service/ and order-dispatch-worker/` |
+|  Shao   | `rating-and-review-service` |
+|  Rishi   | `order-dispatch-worker/` |
 
 
 
@@ -89,7 +89,7 @@ Surge Pricing Worker	worker	Consumes order volume events from a Redis queue. Whe
 
 ### [Rishi]
 
-- [ ]  Provides the order dispatch queue part of redis cache
+- [ ]  DLQ + validation + health metrics + Compose deps, and aligned prep 
 
 ### [Beatrice]
 
@@ -102,6 +102,9 @@ Surge Pricing Worker	worker	Consumes order volume events from a Redis queue. Whe
 
 - [ ] Order Dispatch Worker and making sure it works with driver service
 
+### [Shao]
+
+- [ ] Implement rating and review service
 ---
 
 ## Risks

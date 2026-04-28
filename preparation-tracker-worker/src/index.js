@@ -9,6 +9,7 @@ const PREP_QUEUE = 'prep_queue';
 const PREP_DLQ = 'prep_dlq';
 const DISPATCHED_CHANNEL = 'order_dispatched';
 const READY_CHANNEL = 'order_ready';
+const NOTIFICATION_QUEUE = 'queue:notifications';
 const startTime = Date.now();
 
 const subscriber = createClient({ url: REDIS_URL });
@@ -33,8 +34,11 @@ async function initRedis() {
 
   await subscriber.subscribe(DISPATCHED_CHANNEL, async (message) => {
     try {
+      const event = JSON.parse(message);
+      console.log(`[preparation-tracker-worker] dispatch event received order_id=${event.order_id} driver_id=${event.driver_id}`);
       // ALSO push into a queue for depth tracking
       await queue.lPush(PREP_QUEUE, message);
+      console.log(`[preparation-tracker-worker] queued prep job order_id=${event.order_id}`);
     } catch (err) {
       //make sure we are catching errors
       console.error('failed to push onto prep_queue:', err.message);
@@ -67,6 +71,14 @@ async function processQueue() {
       };
       //added some logging to record the order is done and going to delivery tracker
       await publisher.publish(READY_CHANNEL, JSON.stringify(readyEvent));
+      await queue.rPush(
+        NOTIFICATION_QUEUE,
+        JSON.stringify({
+          event: 'order_ready',
+          order_id: event.order_id,
+          status: 'ready',
+        })
+      );
       console.log(`[PREP] order ${event.order_id} ready (prep=${prepTime}ms)`);
 
       lastJobAt = new Date().toISOString();

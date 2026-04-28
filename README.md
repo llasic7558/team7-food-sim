@@ -35,13 +35,29 @@ docker compose logs -f
 docker compose exec holmes bash
 ```
 
+For a full reset that removes containers, networks, and named volumes before
+bringing the stack back up:
+
+```bash
+docker compose down -v --remove-orphans
+docker compose up --build
+```
+
+The seeded driver database starts with 10 free drivers so the async order
+pipeline and k6 load tests have enough headroom for throughput experiments.
+
 ### Base URLs (from Holmes)
 
 ```
 restaurant-service           http://restaurant-service:8000
 order-service                http://order-service:8000
 driver-service               http://driver-service:8000
+order-dispatch-worker        http://order-dispatch-worker:8110   (health endpoint only)
+preparation-tracker-worker   http://preparation-tracker-worker:8100   (health endpoint only)
+delivery-tracker-service     http://delivery-tracker-service:8000
+notification-worker          http://notification-worker:8000   (health endpoint only)
 rating-and-review-service    http://rating-and-review-service:8000
+surge-pricing-worker         http://surge-pricing-worker:8200   (health endpoint only)
 ```
 
 > From inside Holmes, services are reachable by name:
@@ -53,7 +69,45 @@ rating-and-review-service    http://rating-and-review-service:8000
 
 ## System Overview
 
-Users place food delivery orders from local restaurants. The **Order Service** accepts incoming orders and validates each order's restaurant and menu items by making a synchronous HTTP call to the **Restaurant Service**. The **Restaurant Service** manages restaurant profiles, menus, and availability, backed by its own PostgreSQL database. The **Driver Service** tracks driver availability and location in a separate PostgreSQL database. A shared Redis instance is connected to all services for future caching and queue support. Each service exposes a `/health` endpoint that checks its database and Redis connections.
+Users place food delivery orders from local restaurants. The **Order Service**
+accepts incoming orders, validates menus against the **Restaurant Service**,
+persists the order, and fans work out through Redis queues and pub/sub.
+
+The current async pipeline is:
+
+1. `POST /orders` writes an order and enqueues work to `queue:order_dispatch`,
+   `queue:surge_pricing`, and `queue:notifications`.
+2. **Order Dispatch Worker** consumes `queue:order_dispatch`, validates the
+   restaurant, asks **Driver Service** for an assignment, retries transient
+   failures with exponential backoff, and publishes `order_dispatched`.
+3. **Preparation Tracker Worker** subscribes to `order_dispatched`, simulates
+   kitchen preparation, publishes `order_ready`, and queues an `order_ready`
+   notification.
+4. **Delivery Tracker Service** subscribes to `order_ready`, simulates delivery
+   stages, updates driver distance / completion, and queues additional delivery
+   notifications.
+5. **Notification Worker** consumes `queue:notifications`, deduplicates events,
+   and moves malformed messages directly to its DLQ.
+6. **Surge Pricing Worker** consumes `queue:surge_pricing`, detects bursts in
+   restaurant demand, records surge windows, and exposes health / DLQ metrics.
+
+Each service or worker exposes a `/health` endpoint. Queue-based workers expose
+`queue_depth`, `dlq_depth`, and related metrics so we can observe poison pill
+handling and retry behavior during load tests.
+
+## Service Inventory
+
+| Service | Port | Backing Store | Purpose |
+| ------- | ---- | ------------- | ------- |
+| `restaurant-service` | `8000` | Postgres + Redis | Restaurant metadata, menus, menu caching, surge multiplier reads |
+| `order-service` | `8000` | Postgres + Redis | Order creation, idempotency, validation, queue fan-out |
+| `driver-service` | `8000` | Postgres | Driver state, assignment, delivery completion updates |
+| `order-dispatch-worker` | `8110` | Redis | Dispatch queue consumer with retries and DLQ |
+| `preparation-tracker-worker` | `8100` | Redis | Prep queue worker and `order_ready` publisher |
+| `delivery-tracker-service` | `8000` | Redis | Delivery progress simulation and status lookup |
+| `notification-worker` | `8000` | Redis | Notification queue consumer with direct DLQ handling |
+| `rating-and-review-service` | `8000` | Postgres + Redis | Ratings, review submission, rankings, caching |
+| `surge-pricing-worker` | `8200` | Postgres + Redis | Surge detection, pricing windows, DLQ metrics |
 
 ---
 
@@ -553,6 +607,218 @@ curl "http://driver-service:8000/drivers?status=Free"
 
 ---
 
+### POST /assign
+
+```
+POST /assign
+
+  Internal dispatch endpoint used by the order-dispatch-worker. Finds a free
+  driver, marks them Busy, and updates the order status to dispatched.
+
+  Body:
+    order_id  integer|string  optional  Order being assigned
+
+  Responses:
+    200  Driver assigned
+    404  No free drivers available
+    500  Internal server error
+```
+
+**Example request:**
+
+```bash
+curl -X POST http://driver-service:8000/assign \
+  -H "Content-Type: application/json" \
+  -d '{"order_id": 12}'
+```
+
+---
+
+### PUT /drivers/:id/distance
+
+```
+PUT /drivers/:id/distance
+
+  Updates a driver's delivery distance. When status is set back to Free and an
+  order_id is provided, the order is marked delivered and the assignment record
+  is completed.
+
+  Body:
+    distance_from_order  string  required  Human-readable distance
+    status               string  optional  Free or Busy
+    order_id             integer optional  Delivery being completed
+
+  Responses:
+    200  Driver updated
+    400  Invalid payload
+    404  Driver not found
+    500  Internal server error
+```
+
+---
+
+### GET /drivers/:id
+
+```
+GET /drivers/:id
+
+  Returns one driver record by ID.
+
+  Responses:
+    200  Driver found
+    404  Driver not found
+    500  Internal server error
+```
+
+---
+
+### GET /drivers/:id/assignments
+
+```
+GET /drivers/:id/assignments
+
+  Returns assignment history for a driver in reverse chronological order.
+
+  Responses:
+    200  Assignment history returned
+    500  Internal server error
+```
+
+---
+
+## Order Dispatch Worker
+
+Consumes `queue:order_dispatch`. Known poison pills such as malformed JSON,
+missing fields, or nonexistent restaurants go directly to
+`queue:order_dispatch:dlq`. Transient failures such as downstream service
+errors or no drivers available are retried through `queue:order_dispatch:retry`
+with exponential backoff before eventually reaching the DLQ if retries are
+exhausted.
+
+### GET /health
+
+```
+GET /health
+
+  Returns worker health plus queue metrics for the main queue, retry queue, and
+  dead letter queue.
+
+  Responses:
+    200  Worker healthy
+    503  Redis unreachable
+```
+
+**Example response (200):**
+
+```json
+{
+  "status": "healthy",
+  "service": "order-dispatch-worker",
+  "queue_depth": 0,
+  "retry_queue_depth": 0,
+  "dlq_depth": 0,
+  "dead_letter_queue_depth": 0,
+  "last_job_at": "2026-04-28T13:33:03.257Z",
+  "checks": {
+    "redis": { "status": "healthy" }
+  }
+}
+```
+
+---
+
+## Preparation Tracker Worker
+
+Subscribes to `order_dispatched`, mirrors jobs into `prep_queue` for depth
+tracking, simulates kitchen prep, publishes `order_ready`, and queues
+notification events. Failed prep jobs are moved to `prep_dlq`.
+
+### GET /health
+
+```
+GET /health
+
+  Returns worker health plus prep queue and DLQ metrics.
+
+  Responses:
+    200  Worker healthy
+    503  Redis unreachable
+```
+
+---
+
+## Delivery Tracker Service
+
+Subscribes to `order_ready`, simulates delivery stages, updates the driver
+service, and emits notification events for `picked_up`, `in_transit`, `nearby`,
+and `delivered`.
+
+### GET /health
+
+```
+GET /health
+
+  Returns the Redis health for the delivery tracker service.
+
+  Responses:
+    200  Service healthy
+    503  Redis unreachable
+```
+
+### GET /status/:orderId
+
+```
+GET /status/:orderId
+
+  Returns the live delivery status for an order. If the order is complete, the
+  response indicates which driver delivered it.
+
+  Responses:
+    200  Delivery status returned
+    400  Invalid order ID
+    404  Order not found
+    502  Driver service unavailable
+```
+
+---
+
+## Notification Worker
+
+Consumes `queue:notifications`, deduplicates repeated events with Redis keys,
+formats log-friendly notification messages, and moves malformed payloads
+directly to `queue:notifications:dlq`. Unlike order dispatch, this worker does
+not use a retry queue; poison pills go straight to the DLQ.
+
+### GET /health
+
+```
+GET /health
+
+  Returns worker health plus notification queue and DLQ metrics.
+
+  Responses:
+    200  Worker healthy
+    503  Redis unreachable
+```
+
+**Example response (200):**
+
+```json
+{
+  "status": "healthy",
+  "service": "notification-worker",
+  "queue_depth": 0,
+  "dlq_depth": 0,
+  "dead_letter_queue_depth": 0,
+  "last_job_at": "2026-04-28T13:34:09.034Z",
+  "checks": {
+    "redis": { "status": "healthy" }
+  }
+}
+```
+
+---
+
 ## Rating & Review Service
 
 ### GET /health
@@ -765,6 +1031,118 @@ curl http://rating-and-review-service:8000/rankings
 ```
 
 ---
+
+## Surge Pricing Worker
+
+Consumes order volume events from the `queue:surge_pricing` Redis queue. When
+the order rate for a restaurant exceeds a configurable threshold within a sliding
+time window, publishes a "surge active" event on Redis pub/sub and writes the
+surge period and multiplier to the pricing database. The Restaurant Service reads
+the surge multiplier from Redis and attaches a surge fee to affected menus.
+Malformed or invalid messages are moved to `queue:surge_pricing:dlq`.
+
+### GET /health
+
+```
+GET /health
+
+  Returns 200 when Redis and the pricing database are reachable and the worker
+  is processing jobs. Returns 503 if either dependency is down.
+
+  Responses:
+    200  Worker healthy
+    503  Redis or database unreachable
+```
+
+**Example request:**
+
+```bash
+curl http://surge-pricing-worker:8200/health
+```
+
+**Example response (200):**
+
+```json
+{
+  "status": "healthy",
+  "service": "surge-pricing-worker",
+  "timestamp": "2026-04-07T12:00:00.000Z",
+  "uptime_seconds": 300,
+  "queue_depth": 0,
+  "dlq_depth": 0,
+  "last_job_at": "2026-04-07T11:59:45.000Z",
+  "checks": {
+    "redis": { "status": "healthy" },
+    "database": { "status": "healthy", "latency_ms": 2 }
+  }
+}
+```
+
+---
+
+## Load Testing
+
+All load-test scripts live in [`k6/`](k6/).
+Run them from inside Holmes:
+
+```bash
+docker compose exec holmes bash
+```
+
+Available scripts:
+
+| Script | Purpose |
+| ------ | ------- |
+| `k6/sprint-1.js` | Baseline read traffic |
+| `k6/sprint-2-cache.js` | Restaurant menu cache comparison |
+| `k6/sprint-2-async.js` | Async order pipeline burst |
+| `k6/sprint-3-poison.js` | Order-dispatch poison-pill resilience with retries |
+| `k6/sprint-3-poison-baseline.js` | Normal-only baseline for the Sprint 3 dispatch comparison |
+| `k6/sprint-3-notification-poison.js` | Notification-worker poison-pill handling without retries |
+
+Sprint 1 example:
+
+```bash
+k6 run /workspace/k6/sprint-1.js
+```
+
+Sprint 2 examples:
+
+```bash
+# Cache comparison
+k6 run /workspace/k6/sprint-2-cache.js
+
+# Async pipeline burst
+k6 run /workspace/k6/sprint-2-async.js
+```
+
+Sprint 3 examples:
+
+```bash
+# Dispatch worker poison-pill test
+k6 run /workspace/k6/sprint-3-poison.js
+
+# Matching normal-only baseline
+k6 run /workspace/k6/sprint-3-poison-baseline.js
+
+# Notification-worker poison-pill comparison
+k6 run /workspace/k6/sprint-3-notification-poison.js
+```
+
+The dispatch poison test is expected to show:
+
+- Normal `POST /orders` requests still return `201`
+- `order-dispatch-worker` stays healthy throughout
+- `dlq_depth` increases after poison pills are injected
+- `retry_queue_depth` may also grow because real orders can retry when no
+  driver is immediately available
+
+The notification poison test is expected to show:
+
+- Normal `POST /orders` requests still return `201`
+- `notification-worker` stays healthy throughout
+- Poison messages go directly to `queue:notifications:dlq`
+- There is no retry queue in this worker path
 
 ## Sprint History
 
