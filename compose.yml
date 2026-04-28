@@ -344,6 +344,12 @@ services:
       PORT: 8000
     ports:
       - "8006:8000"
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:8000/health']
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     depends_on: 
       redis:
         condition: service_healthy
