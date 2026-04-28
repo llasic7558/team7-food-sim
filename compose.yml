@@ -314,6 +314,7 @@ services:
     environment:
       DATABASE_URL: postgres://app:secret@pricing-db:5432/pricing
       REDIS_URL: redis://redis:6379
+      ORDER_SERVICE_URL: http://order-service:8000
       SERVICE_NAME: surge-pricing-worker
       PORT: 8200
       SURGE_WINDOW_SECONDS: 300
