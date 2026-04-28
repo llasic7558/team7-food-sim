@@ -42,6 +42,7 @@ restaurant-service           http://restaurant-service:8000
 order-service                http://order-service:8000
 driver-service               http://driver-service:8000
 rating-and-review-service    http://rating-and-review-service:8000
+surge-pricing-worker         http://surge-pricing-worker:8200   (health endpoint only)
 ```
 
 > From inside Holmes, services are reachable by name:
@@ -761,6 +762,54 @@ curl http://rating-and-review-service:8000/rankings
       "average_score": "4.50"
     }
   ]
+}
+```
+
+---
+
+## Surge Pricing Worker
+
+Consumes order volume events from the `queue:surge_pricing` Redis queue. When
+the order rate for a restaurant exceeds a configurable threshold within a sliding
+time window, publishes a "surge active" event on Redis pub/sub and writes the
+surge period and multiplier to the pricing database. The Restaurant Service reads
+the surge multiplier from Redis and attaches a surge fee to affected menus.
+Malformed or invalid messages are moved to `queue:surge_pricing:dlq`.
+
+### GET /health
+
+```
+GET /health
+
+  Returns 200 when Redis and the pricing database are reachable and the worker
+  is processing jobs. Returns 503 if either dependency is down.
+
+  Responses:
+    200  Worker healthy
+    503  Redis or database unreachable
+```
+
+**Example request:**
+
+```bash
+curl http://surge-pricing-worker:8200/health
+```
+
+**Example response (200):**
+
+```json
+{
+  "status": "healthy",
+  "service": "surge-pricing-worker",
+  "timestamp": "2026-04-07T12:00:00.000Z",
+  "uptime_seconds": 300,
+  "queue_depth": 0,
+  "dlq_depth": 0,
+  "last_job_at": "2026-04-07T11:59:45.000Z",
+  "checks": {
+    "redis": { "status": "healthy" },
+    "database": { "status": "healthy", "latency_ms": 2 }
+  }
 }
 ```
 
