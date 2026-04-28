@@ -339,6 +339,7 @@ app.get("/health", async (_req, res) => {
     uptime_seconds: Math.floor((Date.now() - startTime) / 1000),
     queue_depth: queueDepth,
     retry_queue_depth: retryQueueDepth,
+    dlq_depth: dlqDepth,
     dead_letter_queue_depth: dlqDepth, //fixing naming
     last_job_at: lastJobAt,
     checks,
