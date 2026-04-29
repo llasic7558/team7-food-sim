@@ -200,8 +200,11 @@ services:
       restaurant-service:
         condition: service_healthy
 
-  driver-service-app:
+  driver-service:
     build: ./driver-service
+    container_name: driver-service
+    ports:                      
+      - "8003:8000" 
     restart: unless-stopped
     networks:
       - team-net
@@ -220,26 +223,6 @@ services:
       driver-db:
         condition: service_healthy
       redis:
-        condition: service_healthy
-
-  driver-service:
-    image: caddy:2-alpine
-    container_name: driver-service
-    ports:
-      - "80:8000"
-    restart: unless-stopped
-    networks:
-      - team-net
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-    healthcheck:
-      test: ['CMD', 'wget', '-qO-', 'http://localhost:8000/health']
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 15s
-    depends_on:
-      driver-service-app:
         condition: service_healthy
         
   order-dispatch-worker:
