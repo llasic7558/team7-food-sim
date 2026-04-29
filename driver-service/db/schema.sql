@@ -18,3 +18,8 @@ CREATE TABLE IF NOT EXISTS driver_assignments (
 
 CREATE INDEX IF NOT EXISTS idx_driver_assignments_driver
   ON driver_assignments (driver_id, assigned_at DESC);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_driver_assignments_active_driver
+  ON driver_assignments (driver_id)
+  WHERE completed_at IS NULL;
+
