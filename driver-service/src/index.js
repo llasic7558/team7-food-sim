@@ -18,6 +18,41 @@ async function recordAssignment(orderId, driverId) {
   );
 }
 
+async function assignNextFreeDriver() {
+  const client = await db.pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const candidate = await client.query(
+      `SELECT id
+       FROM drivers
+       WHERE status = 'Free'
+       ORDER BY id
+       FOR UPDATE SKIP LOCKED
+       LIMIT 1`
+    );
+
+    if (candidate.rows.length === 0) {
+      await client.query("COMMIT");
+      return null;
+    }
+
+    const updated = await client.query(
+      "UPDATE drivers SET status = 'Busy' WHERE id = $1 RETURNING *",
+      [candidate.rows[0].id]
+    );
+
+    await client.query("COMMIT");
+    return updated.rows[0] ?? null;
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 async function completeAssignment(orderId, driverId, finalStatus, distance) {
   if (orderId == null) return;
   await db.query(
@@ -56,21 +91,12 @@ app.post("/assign", async (req, res) => {
   console.log(`[driver-service] assignment requested order_id=${order_id}`);
 
   try {
-    const result = await db.query(
-      "SELECT * FROM drivers WHERE status = 'Free' LIMIT 1"
-    );
+    const driver = await assignNextFreeDriver();
 
-    if (result.rows.length === 0) {
+    if (!driver) {
       console.log(`[driver-service] no drivers available order_id=${order_id}`);
       return res.status(404).json({ error: "no drivers available" });
     }
-
-    const driver = result.rows[0];
-
-    const updated = await db.query(
-      "UPDATE drivers SET status = 'Busy' WHERE id = $1 RETURNING *",
-      [driver.id]
-    );
 
     if (order_id !== undefined) {
       try {
@@ -96,7 +122,7 @@ app.post("/assign", async (req, res) => {
     }
 
     console.log(`[driver-service] driver assigned order_id=${order_id} driver_id=${driver.id}`);
-    res.json(updated.rows[0]);
+    res.json(driver);
   } catch (err) {
     console.error('[driver-service] failed to assign driver:', err.message);
     res.status(500).json({ error: "failed to assign driver" });
