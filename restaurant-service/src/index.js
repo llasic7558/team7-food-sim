@@ -7,16 +7,45 @@ const PORT = process.env.PORT || 8000;
 const CACHE_ENABLED = process.env.CACHE_ENABLED !== 'false';
 const BUSINESS_TIMEZONE = process.env.BUSINESS_TIMEZONE || 'America/New_York';
 const startTime = Date.now();
+//instanceID
+const INSTANCE_ID = process.env.HOSTNAME || `instance-${Math.random()}`;
 
 console.log(`restaurant-service starting (CACHE_ENABLED=${CACHE_ENABLED})`);
 
 app.use(express.json());
 
-const redis = createClient({ url: process.env.REDIS_URL });
-redis.on('error', (err) => console.error('[restaurant-service] Redis error:', err));
-redis.connect()
-  .then(() => console.log('[restaurant-service] Redis connected'))
-  .catch((err) => console.error('[restaurant-service] Redis connect failed:', err.message));
+const redis = createClient({
+  url: process.env.REDIS_URL,
+  socket: {
+    reconnectStrategy: (retries) => Math.min(retries * 50, 500),
+  },
+});
+
+redis.on('error', (err) =>
+  console.error(`[restaurant-service][${INSTANCE_ID}] Redis error:`, err)
+);
+
+async function connectRedis() {
+  try {
+    await redis.connect();
+    console.log(`[restaurant-service][${INSTANCE_ID}] Redis connected`);
+  } catch (err) {
+    console.error(`[restaurant-service][${INSTANCE_ID}] Redis connect failed:`, err.message);
+  }
+}
+
+async function shutdown() {
+  console.log(`[restaurant-service][${INSTANCE_ID}] shutting down...`);
+  try {
+    await redis.quit();
+  } catch (err) {
+    console.error('Error closing Redis:', err.message);
+  }
+  process.exit(0);
+}
+
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
 
 function getBusinessClock(now = new Date()) {
   const parts = new Intl.DateTimeFormat('en-US', {
