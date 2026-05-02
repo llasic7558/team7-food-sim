@@ -267,3 +267,25 @@ app.get('/restaurants/:id/menu', async (req, res) => {
 app.listen(PORT, () => {
   console.log(`restaurant-service listening on port ${PORT}`);
 });
+
+async function start() {
+  await connectRedis();
+
+  let ready = false;
+  while (!ready) {
+    try {
+      await db.query('SELECT 1');
+      await redis.ping();
+      ready = true;
+    } catch {
+      console.log(`[${INSTANCE_ID}] waiting for dependencies...`);
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+  }
+
+  app.listen(PORT, () => {
+    console.log(`[restaurant-service][${INSTANCE_ID}] listening on ${PORT}`);
+  });
+}
+
+start();
