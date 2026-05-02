@@ -26,6 +26,19 @@ for (const [name, c] of [['subscriber', subscriber], ['publisher', publisher], [
 
 let lastJobAt = null;
 
+async function moveToPrepDlq(record) {
+  await queue.lPush(
+    PREP_DLQ,
+    JSON.stringify({
+      ...record,
+      at: new Date().toISOString(),
+    })
+  );
+  console.error(
+    `[preparation-tracker-worker] moved job to DLQ order_id=${record.order_id ?? 'n/a'} reason=${record.reason ?? 'unknown'}`
+  );
+}
+
 async function initRedis() {
   //refactor to make sure all are good then go
   await Promise.all([subscriber.connect(), publisher.connect(), worker.connect(), queue.connect()]);
@@ -51,12 +64,44 @@ async function initRedis() {
 
 async function processQueue() {
   while (true) {
+    let message = null;
     try {
       // BRPOP blocks until job arrives
       const result = await worker.brPop(PREP_QUEUE, 0);
-      const message = result.element;
-      //we now 
-      const event = JSON.parse(message);
+      message = result.element;
+
+      let event;
+      try {
+        event = JSON.parse(message);
+      } catch (err) {
+        await moveToPrepDlq({
+          payload: message,
+          reason: 'invalid_json',
+          error: err.message,
+          retryable: false,
+        });
+        continue;
+      }
+
+      if (typeof event !== 'object' || event === null || Array.isArray(event)) {
+        await moveToPrepDlq({
+          payload: event,
+          reason: 'invalid_payload_shape',
+          retryable: false,
+        });
+        continue;
+      }
+
+      if (event.order_id == null || event.driver_id == null) {
+        await moveToPrepDlq({
+          payload: event,
+          order_id: event.order_id,
+          reason: 'missing_required_fields',
+          retryable: false,
+        });
+        continue;
+      }
+
       console.log('[PREP] processing', event);
 
       const prepTime = Math.floor(Math.random() * 3000) + 2000;
@@ -87,7 +132,12 @@ async function processQueue() {
       console.error('[PREP] worker error:', err.message);
       //move bad job to DLQ
       try {
-        await queue.lPush(PREP_DLQ, JSON.stringify({ error: err.message, at: new Date().toISOString() }));
+        await moveToPrepDlq({
+          payload: message,
+          reason: 'unexpected_processing_error',
+          error: err.message,
+          retryable: true,
+        });
       } catch (dlqErr) {
         console.error('failed to push onto DLQ:', dlqErr.message);
       }

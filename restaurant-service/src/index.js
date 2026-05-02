@@ -6,6 +6,8 @@ const app = express();
 const PORT = process.env.PORT || 8000;
 const CACHE_ENABLED = process.env.CACHE_ENABLED !== 'false';
 const BUSINESS_TIMEZONE = process.env.BUSINESS_TIMEZONE || 'America/New_York';
+const RATING_SERVICE_URL = process.env.RATING_SERVICE_URL || 'http://rating-and-review-service:8000';
+const RATING_SERVICE_TIMEOUT_MS = parseInt(process.env.RATING_SERVICE_TIMEOUT_MS || '1500', 10);
 const startTime = Date.now();
 
 console.log(`restaurant-service starting (CACHE_ENABLED=${CACHE_ENABLED})`);
@@ -14,8 +16,36 @@ app.use(express.json());
 
 const redis = createClient({ url: process.env.REDIS_URL });
 redis.on('error', (err) => console.error('[restaurant-service] Redis error:', err));
+const ratingSubscriber = redis.duplicate();
+ratingSubscriber.on('error', (err) => console.error('[restaurant-service] rating subscriber error:', err));
 redis.connect()
   .then(() => console.log('[restaurant-service] Redis connected'))
+  .then(async () => {
+    await ratingSubscriber.connect();
+    await ratingSubscriber.subscribe('rating_submitted', async (message) => {
+      let event;
+      try {
+        event = JSON.parse(message);
+      } catch (err) {
+        console.error('[restaurant-service] invalid rating_submitted event:', err.message);
+        return;
+      }
+
+      const restaurantId = event.restaurant_id;
+      if (restaurantId == null) {
+        console.error('[restaurant-service] rating_submitted missing restaurant_id');
+        return;
+      }
+
+      try {
+        await redis.del(`menu:${restaurantId}`);
+        console.log(`[restaurant-service] menu cache invalidated from rating_submitted restaurant_id=${restaurantId}`);
+      } catch (err) {
+        console.error(`[restaurant-service] menu cache invalidation failed restaurant_id=${restaurantId}:`, err.message);
+      }
+    });
+    console.log('[restaurant-service] subscribed to rating_submitted');
+  })
   .catch((err) => console.error('[restaurant-service] Redis connect failed:', err.message));
 
 function getBusinessClock(now = new Date()) {
@@ -77,9 +107,66 @@ async function fetchAvailabilityWindowsForRestaurants(restaurantIds) {
   return grouped;
 }
 
-function decorateRestaurant(row, windows = []) {
+function unavailableRatingSummary(restaurantId, error) {
   return {
-    ...row,
+    restaurant_id: Number(restaurantId),
+    average_score: null,
+    total_ratings: null,
+    source: 'rating-and-review-service',
+    available: false,
+    error,
+  };
+}
+
+async function fetchRestaurantRatingSummary(restaurantId) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), RATING_SERVICE_TIMEOUT_MS);
+
+  try {
+    const res = await fetch(
+      `${RATING_SERVICE_URL}/ratings/restaurant/${encodeURIComponent(restaurantId)}`,
+      { signal: controller.signal }
+    );
+
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+
+    const body = await res.json();
+    return {
+      restaurant_id: Number(body.restaurant_id ?? restaurantId),
+      average_score: Number(body.average_score ?? 0),
+      total_ratings: Number(body.total_ratings ?? 0),
+      source: 'rating-and-review-service',
+      available: true,
+    };
+  } catch (err) {
+    const reason = err.name === 'AbortError' ? 'timeout' : err.message;
+    console.error(`[restaurant-service] rating lookup failed restaurant_id=${restaurantId}:`, reason);
+    return unavailableRatingSummary(restaurantId, reason);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function fetchRatingSummariesForRestaurants(restaurantIds) {
+  const entries = await Promise.all(
+    restaurantIds.map(async (id) => [id, await fetchRestaurantRatingSummary(id)])
+  );
+  return new Map(entries);
+}
+
+function decorateRestaurant(row, windows = [], ratingSummary = unavailableRatingSummary(row.id, 'not_loaded')) {
+  const { rating: _restaurantDbRating, ...restaurant } = row;
+  const averageRating = ratingSummary.available ? ratingSummary.average_score : null;
+
+  return {
+    ...restaurant,
+    rating: averageRating,
+    average_rating: averageRating,
+    total_ratings: ratingSummary.total_ratings,
+    rating_source: ratingSummary.source,
+    rating_available: ratingSummary.available,
     availability_windows: windows,
     is_open_now: isRestaurantOpenNow(windows),
   };
@@ -119,13 +206,19 @@ app.get('/health', async (_req, res) => {
 app.get('/restaurants', async (_req, res) => {
   try {
     const result = await db.query('SELECT * FROM restaurants ORDER BY name');
+    const restaurantIds = result.rows.map((row) => row.id);
     const windowsByRestaurant = await fetchAvailabilityWindowsForRestaurants(
-      result.rows.map((row) => row.id)
+      restaurantIds
     );
+    const ratingsByRestaurant = await fetchRatingSummariesForRestaurants(restaurantIds);
     console.log(`[restaurant-service] listed restaurants count=${result.rows.length}`);
     res.json({
       restaurants: result.rows.map((row) =>
-        decorateRestaurant(row, windowsByRestaurant.get(row.id) || [])
+        decorateRestaurant(
+          row,
+          windowsByRestaurant.get(row.id) || [],
+          ratingsByRestaurant.get(row.id)
+        )
       ),
     });
   } catch (error) {
@@ -141,13 +234,19 @@ app.get('/restaurants/search', async (req, res) => {
   }
   try {
     const result = await db.query('SELECT * FROM restaurants WHERE name ILIKE $1', [`%${name}%`]);
+    const restaurantIds = result.rows.map((row) => row.id);
     const windowsByRestaurant = await fetchAvailabilityWindowsForRestaurants(
-      result.rows.map((row) => row.id)
+      restaurantIds
     );
+    const ratingsByRestaurant = await fetchRatingSummariesForRestaurants(restaurantIds);
     console.log(`[restaurant-service] search name="${name}" count=${result.rows.length}`);
     res.json({
       restaurants: result.rows.map((row) =>
-        decorateRestaurant(row, windowsByRestaurant.get(row.id) || [])
+        decorateRestaurant(
+          row,
+          windowsByRestaurant.get(row.id) || [],
+          ratingsByRestaurant.get(row.id)
+        )
       ),
     });
   } catch (err) {
@@ -163,9 +262,14 @@ app.get('/restaurants/:id', async (req, res) => {
       return res.status(404).json({ error: 'restaurant not found', id: req.params.id });
     }
     const windowsByRestaurant = await fetchAvailabilityWindowsForRestaurants([Number(req.params.id)]);
+    const ratingSummary = await fetchRestaurantRatingSummary(req.params.id);
     console.log(`[restaurant-service] fetched restaurant restaurant_id=${req.params.id}`);
     res.json(
-      decorateRestaurant(result.rows[0], windowsByRestaurant.get(Number(req.params.id)) || [])
+      decorateRestaurant(
+        result.rows[0],
+        windowsByRestaurant.get(Number(req.params.id)) || [],
+        ratingSummary
+      )
     );
   } catch (err) {
     console.error(`[restaurant-service] restaurant fetch failed restaurant_id=${req.params.id}:`, err.message);
@@ -199,6 +303,7 @@ app.get('/restaurants/:id/menu', async (req, res) => {
     const availabilityWindows = windowsByRestaurant.get(Number(restaurantId)) || [];
     const restaurantOpen = isRestaurantOpenNow(availabilityWindows);
     const items = await db.query('SELECT * FROM menu_items WHERE restaurant_id = $1', [restaurantId]);
+    const ratingSummary = await fetchRestaurantRatingSummary(restaurantId);
 
     let surgeMultiplier = 1.0;
     try {
@@ -212,6 +317,11 @@ app.get('/restaurants/:id/menu', async (req, res) => {
       restaurant_id: restaurantId,
       restaurant_open: restaurantOpen,
       availability_windows: availabilityWindows,
+      rating: ratingSummary.available ? ratingSummary.average_score : null,
+      average_rating: ratingSummary.available ? ratingSummary.average_score : null,
+      total_ratings: ratingSummary.total_ratings,
+      rating_source: ratingSummary.source,
+      rating_available: ratingSummary.available,
       items: items.rows.map((item) => ({
         ...item,
         available_now: item.available && restaurantOpen,

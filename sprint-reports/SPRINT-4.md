@@ -1,4 +1,4 @@
-# Sprint 4 Report — [Team Name]
+# Sprint 4 Report — Team 7
 
 **Sprint:** 4 — Replication, Scaling, and Polish  
 **Tag:** `sprint-4`  
@@ -16,9 +16,7 @@
 
 | Team Member | What They Delivered | Key Commits |
 | ----------- | ------------------- | ----------- |
-| [Name]      | | |
-| [Name]      | | |
-| [Name]      | | |
+| Luka Lasic / `llasic7558` | Driver Service replication through Caddy; driver assignment locking for scaled replicas; prep worker DLQ hardening; rating-to-restaurant cache invalidation; Sprint 4 documentation/API polish; restaurant time adjustment for demo reliability. | `6fec18a`, `884753a`, `bee6947`, `2d3c0f3`, `494b3ba`, `30448eb`, `7a453f9`, `a213b24`, `78a886b`, `5e9ca2b` |
 
 ---
 
