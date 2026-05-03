@@ -1,0 +1,9 @@
+:8000 {
+	reverse_proxy {
+		dynamic a order-service-app 8000 {
+			refresh 2s
+			resolvers 127.0.0.11
+		}
+		lb_policy round_robin
+	}
+}
