@@ -5,6 +5,7 @@ const db = require('./db');
 const app = express();
 const PORT = process.env.PORT || 8000;
 const startTime = Date.now();
+const INSTANCE_ID = process.env.HOSTNAME || `instance-${Math.random()}`;
 
 app.use(express.json());
 
@@ -56,19 +57,19 @@ function lineItemKey(line) {
 async function validateItemsWithRestaurant(restaurantId, items) {
   let resp;
   try {
-    console.log(`[order-service] validating menu restaurant_id=${restaurantId} item_count=${items.length}`);
+    console.log(`[order-service][${INSTANCE_ID}] validating menu restaurant_id=${restaurantId} item_count=${items.length}`);
     resp = await fetch(`${RESTAURANT_SERVICE_URL}/restaurants/${restaurantId}/menu`);
   } catch (err) {
-    console.error(`[order-service] restaurant service unreachable restaurant_id=${restaurantId}:`, err.message);
+    console.error(`[order-service][${INSTANCE_ID}] restaurant service unreachable restaurant_id=${restaurantId}:`, err.message);
     return { ok: false, error: 'Restaurant service unavailable', total: 0 };
   }
 
   if (resp.status === 404) {
-    console.log(`[order-service] restaurant not found restaurant_id=${restaurantId}`);
+    console.log(`[order-service][${INSTANCE_ID}] restaurant not found restaurant_id=${restaurantId}`);
     return { ok: false, error: `Restaurant '${restaurantId}' not found`, total: 0 };
   }
   if (!resp.ok) {
-    console.error(`[order-service] restaurant menu fetch failed restaurant_id=${restaurantId} status=${resp.status}`);
+    console.error(`[order-service][${INSTANCE_ID}] restaurant menu fetch failed restaurant_id=${restaurantId} status=${resp.status}`);
     return { ok: false, error: 'Failed to retrieve menu', total: 0 };
   }
 
@@ -91,7 +92,7 @@ async function validateItemsWithRestaurant(restaurantId, items) {
     }
     const qty = line.quantity || 1;
     if (!(key in menu)) {
-      console.log(`[order-service] menu item missing restaurant_id=${restaurantId} item_id=${key}`);
+      console.log(`[order-service][${INSTANCE_ID}] menu item missing restaurant_id=${restaurantId} item_id=${key}`);
       return { ok: false, error: `Item '${key}' not on menu`, total: 0 };
     }
     if (menu[key].available === false || menu[key].available_now === false) {
@@ -109,7 +110,7 @@ async function validateItemsWithRestaurant(restaurantId, items) {
   total = Math.round(total * 100) / 100;
   baseTotal = Math.round(baseTotal * 100) / 100;
 
-  console.log(`[order-service] menu validation complete restaurant_id=${restaurantId} total=${total}`);
+  console.log(`[order-service][${INSTANCE_ID}] menu validation complete restaurant_id=${restaurantId} total=${total}`);
   return { ok: true, error: '', total, baseTotal, surgeMultiplier };
 }
 
@@ -124,11 +125,11 @@ function pushNotification(event, order, extra = {}) {
   redis.lPush(NOTIFICATION_QUEUE, payload)
     .then(() => {
       console.log(
-        `[order-service] notification queued queue=${NOTIFICATION_QUEUE} order_id=${order.id} event=${event}`
+        `[order-service][${INSTANCE_ID}] notification queued queue=${NOTIFICATION_QUEUE} order_id=${order.id} event=${event}`
       );
     })
     .catch((err) => {
-      console.error(`[order-service] failed to push notification order_id=${order.id}:`, err.message);
+      console.error(`[order-service][${INSTANCE_ID}] failed to push notification order_id=${order.id}:`, err.message);
     });
 }
 
@@ -198,11 +199,11 @@ app.get('/orders', async (req, res) => {
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     const result = await db.query(`SELECT * FROM orders ${where} ORDER BY created_at DESC`, params);
     console.log(
-      `[order-service] listed orders count=${result.rows.length} customer_id=${req.query.customer_id ?? 'all'} status=${req.query.status ?? 'all'}`
+      `[order-service][${INSTANCE_ID}] listed orders count=${result.rows.length} customer_id=${req.query.customer_id ?? 'all'} status=${req.query.status ?? 'all'}`
     );
     res.json(result.rows.map(formatOrder));
   } catch (err) {
-    console.error('[order-service] error listing orders:', err.message);
+    console.error('[order-service][${INSTANCE_ID}] error listing orders:', err.message);
     res.status(500).json({ error: 'internal server error' });
   }
 });
@@ -221,18 +222,21 @@ app.post('/orders', async (req, res) => {
       EX: IDEMPOTENCY_TTL_SEC,
     });
   } catch (err) {
-    console.error('[order-service] Redis SETNX failed:', err.message);
+    console.error('[order-service][${INSTANCE_ID}] Redis SETNX failed:', err.message);
     return res.status(500).json({ error: 'internal server error' });
   }
 
   if (!reserved) {
     const resolved = await awaitIdempotencyResolution(redisKey);
     if (!resolved) {
-      console.log(`[order-service] idempotent request still pending key=${idempotencyKey}`);
+      console.log(`[order-service][${INSTANCE_ID}] idempotent request still pending key=${idempotencyKey}`);
       return res.status(503).json({ error: 'idempotent request in flight, please retry' });
     }
-    console.log(`[order-service] duplicate order request key=${idempotencyKey} order_id=${resolved.id}`);
-    return res.status(201).json(resolved);
+    console.log(`[order-service][${INSTANCE_ID} duplicate order request key=${idempotencyKey} order_id=${resolved.id}`);
+    return res.status(201).json({
+      ...response,
+      instance: INSTANCE_ID
+    });
   }
 
   try {
@@ -277,18 +281,21 @@ app.post('/orders', async (req, res) => {
     const order = result.rows[0];
     const response = formatOrder(order);
 
-    console.log(`Order ${order.id} created (customer=${customer_id}, restaurant=${restaurant_id}, total=$${validation.total})`);
+    console.log(`[order-service][${INSTANCE_ID}] Order ${order.id} created (customer=${customer_id}, restaurant=${restaurant_id}, total=$${validation.total})`);
     pushNotification('order_confirmed', order, { status: 'confirmed' });
     await redis.rPush(ORDER_DISPATCH_QUEUE, JSON.stringify({ order_id: order.id, restaurant_id }));
     await redis.rPush(SURGE_PRICING_QUEUE, JSON.stringify({ order_id: order.id, restaurant_id: Number(restaurant_id) }));
 
     await redis.set(redisKey, JSON.stringify(response), { EX: IDEMPOTENCY_TTL_SEC });
-    console.log(`[order-service] idempotency result cached key=${idempotencyKey}`);
+    console.log(`[order-service][${INSTANCE_ID}] idempotency result cached key=${idempotencyKey}`);
 
-    return res.status(201).json(response);
+    return res.status(201).json({
+      ...response,
+      instance: INSTANCE_ID
+    });
   } catch (err) {
     await redis.del(redisKey).catch(() => {});
-    console.error('[order-service] error creating order:', err.message);
+    console.error('[order-service][${INSTANCE_ID}] error creating order:', err.message);
     return res.status(500).json({ error: 'internal server error' });
   }
 });
@@ -300,10 +307,10 @@ app.get('/orders/:id', async (req, res) => {
       return res.status(404).json({ error: 'order not found', id: req.params.id });
     }
 
-    console.log(`[order-service] fetched order order_id=${req.params.id}`);
+    console.log(`[order-service][${INSTANCE_ID}] fetched order order_id=${req.params.id}`);
     res.json(formatOrder(result.rows[0]));
   } catch (err) {
-    console.error(`[order-service] error getting order order_id=${req.params.id}:`, err.message);
+    console.error(`[order-service][${INSTANCE_ID}] error getting order order_id=${req.params.id}:`, err.message);
     res.status(500).json({ error: 'internal server error' });
   }
 });
@@ -336,12 +343,12 @@ app.put('/orders/:id/status', async (req, res) => {
 
     const order = result.rows[0];
     console.log(
-      `[order-service] order status updated order_id=${req.params.id} status=${status} driver_id=${driver_id ?? order.driver_id ?? 'none'}`
+      `[order-service][${INSTANCE_ID}] order status updated order_id=${req.params.id} status=${status} driver_id=${driver_id ?? order.driver_id ?? 'none'}`
     );
     pushNotification(`order_${status}`, order);
     res.json(formatOrder(order));
   } catch (err) {
-    console.error(`[order-service] error updating order status order_id=${req.params.id}:`, err.message);
+    console.error(`[order-service][${INSTANCE_ID}] error updating order status order_id=${req.params.id}:`, err.message);
     res.status(500).json({ error: 'internal server error' });
   }
 });
@@ -353,14 +360,14 @@ app.get('/orders/:id/verify-completed', async (req, res) => {
       return res.status(404).json({ error: 'order not found', id: req.params.id });
     }
     const order = result.rows[0];
-    console.log(`[order-service] verify completed order_id=${req.params.id} completed=${order.status === 'delivered'}`);
+    console.log(`[order-service][${INSTANCE_ID}] verify completed order_id=${req.params.id} completed=${order.status === 'delivered'}`);
     res.json({ order_id: order.id, completed: order.status === 'delivered' });
   } catch (err) {
-    console.error(`[order-service] error verifying order order_id=${req.params.id}:`, err.message);
+    console.error(`[order-service][${INSTANCE_ID}] error verifying order order_id=${req.params.id}:`, err.message);
     res.status(500).json({ error: 'internal server error' });
   }
 });
 
 app.listen(PORT, () => {
-  console.log(`order-service listening on port ${PORT}`);
+  console.log(`[order-service][${INSTANCE_ID}] listening on port ${PORT}`);
 });
