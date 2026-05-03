@@ -170,7 +170,7 @@ curl http://restaurant-service:8000/health
 GET /restaurants
 
   Returns all restaurants ordered by name. Each restaurant includes its
-  availability windows and whether it is currently open.
+  availability windows, current open status, and rating metadata.
 
   Responses:
     200  Success
@@ -193,51 +193,11 @@ curl http://restaurant-service:8000/restaurants
       "name": "Bella Italia",
       "cuisine": "Italian",
       "address": "123 Main St",
-      "rating": "4.5",
-      "availability_windows": [
-        { "day_of_week": 1, "opens_at": "09:00", "closes_at": "21:00" }
-      ],
-      "is_open_now": true
-    }
-  ]
-}
-```
-
----
-
-### GET /restaurants/search
-
-```
-GET /restaurants/search
-
-  Search restaurants by name using a case-insensitive partial match.
-
-  Query:
-    name  string  required
-
-  Responses:
-    200  Success
-    400  Missing name query parameter
-    500  Internal server error
-```
-
-**Example request:**
-
-```bash
-curl "http://restaurant-service:8000/restaurants/search?name=bella"
-```
-
-**Example output (200):**
-
-```json
-{
-  "restaurants": [
-    {
-      "id": 1,
-      "name": "Bella Italia",
-      "cuisine": "Italian",
-      "address": "123 Main St",
-      "rating": "4.5",
+      "rating": null,
+      "average_rating": null,
+      "total_ratings": null,
+      "rating_source": "rating-and-review-service",
+      "rating_available": false,
       "availability_windows": [
         { "day_of_week": 1, "opens_at": "09:00", "closes_at": "21:00" }
       ],
@@ -255,7 +215,7 @@ curl "http://restaurant-service:8000/restaurants/search?name=bella"
 GET /restaurants/:id
 
   Returns full detail for one restaurant, including availability windows
-  and whether it is currently open.
+  current open status, and rating summary from Rating & Review Service.
 
   Path:
     id  integer  required
@@ -280,7 +240,11 @@ curl http://restaurant-service:8000/restaurants/1
   "name": "Bella Italia",
   "cuisine": "Italian",
   "address": "123 Main St",
-  "rating": "4.5",
+  "rating": 4.5,
+  "average_rating": 4.5,
+  "total_ratings": 2,
+  "rating_source": "rating-and-review-service",
+  "rating_available": true,
   "availability_windows": [
     { "day_of_week": 1, "opens_at": "09:00", "closes_at": "21:00" }
   ],
