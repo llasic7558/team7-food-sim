@@ -6,6 +6,8 @@ const app = express();
 const PORT = process.env.PORT || 8000;
 const CACHE_ENABLED = process.env.CACHE_ENABLED !== 'false';
 const BUSINESS_TIMEZONE = process.env.BUSINESS_TIMEZONE || 'America/New_York';
+const RATING_SERVICE_URL = process.env.RATING_SERVICE_URL || 'http://rating-and-review-service:8000';
+const RATING_SERVICE_TIMEOUT_MS = parseInt(process.env.RATING_SERVICE_TIMEOUT_MS || '1500', 10);
 const startTime = Date.now();
 const INSTANCE_ID = process.env.HOSTNAME || `instance-${Math.random()}`;
 
@@ -106,9 +108,66 @@ async function fetchAvailabilityWindowsForRestaurants(ids) {
   return grouped;
 }
 
-function decorateRestaurant(row, windows = []) {
+function unavailableRatingSummary(restaurantId, error) {
   return {
-    ...row,
+    restaurant_id: Number(restaurantId),
+    average_score: null,
+    total_ratings: null,
+    source: 'rating-and-review-service',
+    available: false,
+    error,
+  };
+}
+
+async function fetchRestaurantRatingSummary(restaurantId) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), RATING_SERVICE_TIMEOUT_MS);
+
+  try {
+    const res = await fetch(
+      `${RATING_SERVICE_URL}/ratings/restaurant/${encodeURIComponent(restaurantId)}`,
+      { signal: controller.signal }
+    );
+
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+
+    const body = await res.json();
+    return {
+      restaurant_id: Number(body.restaurant_id ?? restaurantId),
+      average_score: Number(body.average_score ?? 0),
+      total_ratings: Number(body.total_ratings ?? 0),
+      source: 'rating-and-review-service',
+      available: true,
+    };
+  } catch (err) {
+    const reason = err.name === 'AbortError' ? 'timeout' : err.message;
+    console.error(`[restaurant-service] rating lookup failed restaurant_id=${restaurantId}:`, reason);
+    return unavailableRatingSummary(restaurantId, reason);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function fetchRatingSummariesForRestaurants(restaurantIds) {
+  const entries = await Promise.all(
+    restaurantIds.map(async (id) => [id, await fetchRestaurantRatingSummary(id)])
+  );
+  return new Map(entries);
+}
+
+function decorateRestaurant(row, windows = [], ratingSummary = unavailableRatingSummary(row.id, 'not_loaded')) {
+  const { rating: _restaurantDbRating, ...restaurant } = row;
+  const averageRating = ratingSummary.available ? ratingSummary.average_score : null;
+
+  return {
+    ...restaurant,
+    rating: averageRating,
+    average_rating: averageRating,
+    total_ratings: ratingSummary.total_ratings,
+    rating_source: ratingSummary.source,
+    rating_available: ratingSummary.available,
     availability_windows: windows,
     is_open_now: isRestaurantOpenNow(windows),
   };

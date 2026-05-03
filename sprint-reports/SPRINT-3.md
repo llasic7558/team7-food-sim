@@ -21,6 +21,9 @@ We finished the remaining services for the restaurant sim. This being the notifi
 | Shao Qin Tan | Initial surge pricing worker and restaurant-side surge support | `31b3553`, `e5f70c5`, `a2c2223`, `78b57ee` |
 | [Beatrice Calvelo]  | added poison pill handling for order dispatch worker| 23497bc|
 | [Dev Mehta]  | added k6 load tests | 3deef1f |
+| [Kanika]  | added notification worker with Redis deduplication| 0c29311
+
+
 
 ---
 

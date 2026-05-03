@@ -7,6 +7,7 @@ const PORT = process.env.PORT || 8000;
 const startTime = Date.now();
 const ORDER_SERVICE_URL = process.env.ORDER_SERVICE_URL || 'http://order-service:8000';
 const CACHE_TTL = 60;
+const RATING_SUBMITTED_CHANNEL = 'rating_submitted';
 
 app.use(express.json());
 
@@ -97,6 +98,22 @@ app.post('/ratings', async (req, res) => {
     await redis.del(`ratings:restaurant:${restaurant_id}`).catch(() => {});
     await redis.del('rankings').catch(() => {});
     console.log(`[rating-service] caches cleared restaurant_id=${restaurant_id}`);
+
+    try {
+      await redis.publish(
+        RATING_SUBMITTED_CHANNEL,
+        JSON.stringify({
+          rating_id: rating.id,
+          order_id,
+          restaurant_id,
+          score,
+          submitted_at: rating.created_at,
+        })
+      );
+      console.log(`[rating-service] published rating_submitted restaurant_id=${restaurant_id} rating_id=${rating.id}`);
+    } catch (err) {
+      console.error(`[rating-service] failed to publish rating_submitted restaurant_id=${restaurant_id}:`, err.message);
+    }
 
     res.status(201).json(rating);
   } catch (err) {
