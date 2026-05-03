@@ -221,6 +221,40 @@ app.get('/restaurants', async (_req, res) => {
   }
 });
 
+app.get('/restaurants/:id', async (req, res) => {
+  const restaurantId = req.params.id;
+
+  try {
+    const result = await db.query('SELECT * FROM restaurants WHERE id = $1', [
+      restaurantId,
+    ]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        error: 'restaurant not found',
+        id: restaurantId,
+      });
+    }
+
+    const windowsByRestaurant = await fetchAvailabilityWindowsForRestaurants([
+      Number(restaurantId),
+    ]);
+
+    const ratingSummary = await fetchRestaurantRatingSummary(restaurantId);
+
+    res.json(
+      decorateRestaurant(
+        result.rows[0],
+        windowsByRestaurant.get(Number(restaurantId)) || [],
+        ratingSummary
+      )
+    );
+  } catch (err) {
+    console.error(`[restaurant-service][${INSTANCE_ID}] error fetching restaurant id=${restaurantId}:`, err.message);
+    res.status(500).json({ error: 'internal server error' });
+  }
+});
+
 app.get('/restaurants/:id/menu', async (req, res) => {
   const restaurantId = req.params.id;
 

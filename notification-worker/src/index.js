@@ -21,6 +21,7 @@ const EVENT_MESSAGES = {
   order_picked_up: (e) => `Order ${e.order_id} picked up by driver`,
   order_ready: (e) => `Order ${e.order_id} is ready for pickup`,
   order_in_transit: (e) => `Order ${e.order_id} is in transit`,
+  order_nearby: (e) => `Order ${e.order_id} is nearby`,
   order_delivered: (e) => `Order ${e.order_id} delivered`,
 };
 

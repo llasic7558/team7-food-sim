@@ -201,6 +201,8 @@ async function processOne(envelope) {
   if (!exists) {
     await moveToDlq({
       payload: parsed,
+      order_id: orderId,
+      restaurant_id: restaurantId,
       reason: "restaurant_not_found",
       retryable: false,
       at: new Date().toISOString(),

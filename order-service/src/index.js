@@ -232,9 +232,9 @@ app.post('/orders', async (req, res) => {
       console.log(`[order-service][${INSTANCE_ID}] idempotent request still pending key=${idempotencyKey}`);
       return res.status(503).json({ error: 'idempotent request in flight, please retry' });
     }
-    console.log(`[order-service][${INSTANCE_ID} duplicate order request key=${idempotencyKey} order_id=${resolved.id}`);
+    console.log(`[order-service][${INSTANCE_ID}] duplicate order request key=${idempotencyKey} order_id=${resolved.id}`);
     return res.status(201).json({
-      ...response,
+      ...resolved,
       instance: INSTANCE_ID
     });
   }
