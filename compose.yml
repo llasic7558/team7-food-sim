@@ -146,11 +146,8 @@ services:
 
   # ── Core Services ──────────────────────────────────────────────────────────
 
-  restaurant-service:
+  restaurant-service-app:
     build: ./restaurant-service
-    container_name: restaurant-service
-    ports:                      
-      - "8002:8000" 
     restart: unless-stopped
     networks:
       - team-net
@@ -245,6 +242,9 @@ services:
     restart: unless-stopped
     networks:
       - team-net
+    environment:
+      UPSTREAM_SERVICE: driver-service-app
+      UPSTREAM_PORT: 8000
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
     healthcheck:
