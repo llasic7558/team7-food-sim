@@ -146,11 +146,8 @@ services:
 
   # ── Core Services ──────────────────────────────────────────────────────────
 
-  restaurant-service:
+  restaurant-service-app:
     build: ./restaurant-service
-    container_name: restaurant-service
-    ports:                      
-      - "8002:8000" 
     restart: unless-stopped
     networks:
       - team-net
@@ -171,6 +168,29 @@ services:
       restaurant-db:
         condition: service_healthy
       redis:
+        condition: service_healthy
+
+  restaurant-service:
+    image: caddy:2-alpine
+    container_name: restaurant-service
+    ports:
+      - "8002:8000"
+    restart: unless-stopped
+    networks:
+      - team-net
+    environment:
+      UPSTREAM_SERVICE: restaurant-service-app
+      UPSTREAM_PORT: 8000
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:8000/health']
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    depends_on:
+      restaurant-service-app:
         condition: service_healthy
 
   order-service:
@@ -231,6 +251,9 @@ services:
     restart: unless-stopped
     networks:
       - team-net
+    environment:
+      UPSTREAM_SERVICE: driver-service-app
+      UPSTREAM_PORT: 8000
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
     healthcheck:

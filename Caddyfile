@@ -6,8 +6,8 @@
 :8000 {
 	reverse_proxy {
 		# Resolve the Docker Compose service name repeatedly so scaled
-		# driver-service-app replicas are discovered without editing this file.
-		dynamic a driver-service-app 8000 {
+		# service replicas are discovered without editing this file.
+		dynamic a {$UPSTREAM_SERVICE:driver-service-app} {$UPSTREAM_PORT:8000} {
 			refresh 2s
 			resolvers 127.0.0.11
 			versions ipv4
